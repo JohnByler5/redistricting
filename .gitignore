@@ -1,3 +1,6 @@
+# PyCharm directories
 .idea/
 venv/
+
+# Models
 models/
