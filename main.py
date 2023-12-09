@@ -13,23 +13,21 @@ def time(start):
 def main():
     start = dt.datetime.now()
 
+    # Create the environment
     print(f'{time(start)} - Creating env...')
-
-    action_polygon_points = 4
     verbose = True
     weights = {}
-
-    env = RedistrictingEnv('data/pa/WP_VotingDistricts.shp', action_polygon_points=action_polygon_points,
-                           verbose=verbose, start=start, weights=weights)
+    env = RedistrictingEnv('data/pa/WP_VotingDistricts.shp', verbose=verbose, start=start, weights=weights)
 
     # Create the PPO agent
     print(f'{time(start)} - Creating agent...')
     policy_kwargs = {
         'net_arch': [
-            int(env.n_districts * env.action_polygon_points / 1),
-            int(env.n_districts * env.action_polygon_points / 2),
-            int(env.n_districts * env.action_polygon_points / 4),
-            int(env.n_districts * env.action_polygon_points / 8),
+            int(len(env.data) / 10),
+            int(len(env.data) / 10),
+            int(len(env.data) / 10),
+            int(len(env.data) / 10),
+            int(len(env.data) / 10),
         ]
     }
     model = PPO('MlpPolicy', env, n_steps=env.n_districts, batch_size=env.n_districts, policy_kwargs=policy_kwargs,
@@ -37,7 +35,7 @@ def main():
 
     # Train the agent
     simulations = 1000
-    timesteps_per_simulation = env.n_districts
+    timesteps_per_simulation = 1
     print(f'{time(start)} - Beginning agent training for {simulations} simulations...')
     model.learn(total_timesteps=simulations * timesteps_per_simulation)
 
