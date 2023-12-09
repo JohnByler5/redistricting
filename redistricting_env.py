@@ -45,10 +45,10 @@ class RedistrictingEnv(gym.Env):
         self.action_polygon_points = action_polygon_points
 
         self.weights = {
-            'allocation': 1,
+            'allocation': 0,
             'pop_balance': 1,
             'compactness': 0,
-            'inter_pop_deviation': 1,
+            'inter_pop_deviation': 0,
         }
         for key in weights:
             if key in self.weights:

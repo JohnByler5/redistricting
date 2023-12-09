@@ -24,7 +24,16 @@ def main():
 
     # Create the PPO agent
     print(f'{time(start)} - Creating agent...')
-    model = PPO('MlpPolicy', env, n_steps=env.n_districts, batch_size=env.n_districts, verbose=0)
+    policy_kwargs = {
+        'net_arch': [
+            int(env.n_districts * env.action_polygon_points / 1),
+            int(env.n_districts * env.action_polygon_points / 2),
+            int(env.n_districts * env.action_polygon_points / 4),
+            int(env.n_districts * env.action_polygon_points / 8),
+        ]
+    }
+    model = PPO('MlpPolicy', env, n_steps=env.n_districts, batch_size=env.n_districts, policy_kwargs=policy_kwargs,
+                verbose=0)
 
     # Train the agent
     simulations = 1000
