@@ -73,7 +73,7 @@ class RedistrictingEnv(gym.Env):
         self.data['perimeter'] = self.data.geometry.length
         self.data['aspect_ratio'] = self.data.geometry.bounds.apply(
             lambda x: (x.maxx - x.minx) / (x.maxy - x.miny), axis=1)
-        self.data['area_to_bbox_ratio'] = self.data.area / self.data.geometry.envelope.area
+        self.data['area_to_bbox_ratio'] = self.data.geometry.area / self.data.geometry.envelope.area
 
         self.data['population_pct'] = self.data['population'] / self.ideal_pop
 
@@ -85,7 +85,7 @@ class RedistrictingEnv(gym.Env):
         return train_data
 
     def calculate_contiguity(self, district_map):
-        total_breaks = sum(count_polygons(district['geometry']) - 1 for _, district in district_map.iterrows())
+        total_breaks = sum(count_polygons(district.geometry) - 1 for _, district in district_map.iterrows())
         max_breaks = len(self.data) - self.n_districts
         return 1 - total_breaks / max_breaks
 
