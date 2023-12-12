@@ -230,40 +230,59 @@ class RedistrictingGeneticAlgorithm:
 
                 size = np.random.randint(low=max(int(self.mutation_size_range[0] * len(eligible_vtds)), 1),
                                          high=max(int(self.mutation_size_range[1] * len(eligible_vtds)), 1) + 1)
-                starting_vtd = np.random.choice(eligible_vtds)
 
-                processed_vtds = {starting_vtd}
-                last_additions = [starting_vtd]
+                attempts = 0
+                while True:
+                    starting_vtd = np.random.choice(eligible_vtds)
 
-                while len(eligible_vtds) > 0 and len(processed_vtds) < size:
-                    eligible_vtds = eligible_vtds[~eligible_vtds.isin(processed_vtds)]
+                    for i in range(self.n_districts):
+                        # if i == district_idx:
+                        #    continue
+                        before = self.data.geometry[new_assignments == i]
+                        after = before[before.index != starting_vtd]
+                        if count_polygons(after.unary_union) > count_polygons(before.unary_union):
+                            break
+                    else:
+                        break
+                    attempts += 1
+                    if attempts == 10:
+                        break
+                if attempts == 10:
+                    continue
 
-                    touching_neighbors = eligible_vtds.values[self.data.geometry[eligible_vtds].touches(
-                        self.data.geometry[last_additions].unary_union)]
-                    if len(touching_neighbors) == 0:
+                eligible_vtds.sort_values(key=lambda x: self.data.geometry[x].distance(
+                    self.data.geometry[starting_vtd]))
+                eligible_vtds = eligible_vtds.values[:size]
+
+                selected, low, high = eligible_vtds.copy(), 0, len(eligible_vtds)
+                while True:
+                    if low + 1 >= high:
                         break
 
-                    if len(touching_neighbors) > size - len(processed_vtds):
-                        np.random.shuffle(touching_neighbors)
-                        touching_neighbors = touching_neighbors[:size - len(processed_vtds)]
-
-                    processed_vtds.update(touching_neighbors)
-
-                    all_neighbors = self.neighbors["index_right"][list(processed_vtds)]
-                    to_end = False
-                    for i, group in self.data.geometry[all_neighbors].groupby(by=new_assignments[all_neighbors]):
+                    breaks_district = False
+                    for i in np.unique(new_assignments[selected]):
                         if i == district_idx:
                             continue
-                        if not isinstance(group.unary_union, Polygon):
-                            processed_vtds.difference_update(touching_neighbors)
-                            to_end = True
+
+                        before = self.data.geometry[new_assignments == i]
+                        after = before[~before.index.isin(selected)]
+                        if count_polygons(after.unary_union) > count_polygons(before.unary_union):
+                            breaks_district = True
                             break
-                    if to_end:
-                        break
 
-                    last_additions = touching_neighbors
+                    if breaks_district:
+                        high = len(selected)
+                    else:
+                        low = len(selected)
+                    selected = eligible_vtds[:(low + high) // 2]
 
-                new_assignments[list(processed_vtds)] = district_idx
+                for i in np.unique(new_assignments[selected]):
+                    before = self.data.geometry[new_assignments == i]
+                    after = before[~before.index.isin(selected)]
+                    if count_polygons(after.unary_union) > count_polygons(before.unary_union):
+                        print('Contiguity system failed!')
+
+                new_assignments[selected] = district_idx
 
             population.append(new_assignments)
             if len(population) == self.population_size:
@@ -333,12 +352,12 @@ def main():
             'pop_balance': 5,
             'compactness': 1,
         },
-        population_size=10,
-        selection_pct=0.5,
+        population_size=5,
+        selection_pct=0.2,
         mutation_n_range=(0.0, 1.0),
         mutation_size_range=(0.0, 1.0),
         mutation_population_bias=-10,
-        starting_population_size=100,
+        starting_population_size=5,
     )
 
     algorithm.run(generations=1_000)
