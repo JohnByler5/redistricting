@@ -1,14 +1,12 @@
+import copy
 import datetime as dt
 import itertools
-import copy
 
 import geopandas as gpd
-import numpy as np
-from shapely.geometry import Polygon, MultiPolygon, LineString, MultiLineString
-import topojson as tp
-
-import matplotlib.colors as mcolors
 import matplotlib.pyplot as plt
+import numpy as np
+import topojson as tp
+from shapely.geometry import Polygon, MultiPolygon, LineString, MultiLineString
 
 
 def count_polygons(geometry):
@@ -209,15 +207,20 @@ class RedistrictingGeneticAlgorithm:
 
         return selected, selected_metrics
 
-    def mutate(self, selected, metrics_list):
+    def mutate(self, selected):
         population = copy.deepcopy(selected)
 
-        for assignments, metrics in itertools.cycle(zip(selected, metrics_list)):
+        for assignments in itertools.cycle(selected):
             new_assignments = assignments.copy()
-            for _ in range(np.random.randint(low=max(int(self.mutation_n_range[0] * self.n_districts), 1),
-                                             high=max(int(self.mutation_n_range[1] * self.n_districts), 1) + 1)):
+            change = np.zeros(assignments.shape)
 
-                p = metrics['pop_balance_by_district'].values ** self.mutation_population_bias
+            n_mutations = np.random.randint(low=max(int(self.mutation_n_range[0] * self.n_districts), 1),
+                                            high=max(int(self.mutation_n_range[1] * self.n_districts), 1) + 1)
+            sizes = {}
+            for m in range(n_mutations):
+
+                p = self.data['population'].groupby(by=new_assignments).sum()
+                p = p.values ** self.mutation_population_bias
                 p /= p.sum()
                 district_idx = np.random.choice(np.array(range(self.n_districts)), p=p)
 
@@ -230,14 +233,15 @@ class RedistrictingGeneticAlgorithm:
 
                 size = np.random.randint(low=max(int(self.mutation_size_range[0] * len(eligible_vtds)), 1),
                                          high=max(int(self.mutation_size_range[1] * len(eligible_vtds)), 1) + 1)
+                sizes[size] = 0
 
                 attempts = 0
                 while True:
                     starting_vtd = np.random.choice(eligible_vtds)
 
                     for i in range(self.n_districts):
-                        # if i == district_idx:
-                        #    continue
+                        if i == district_idx:
+                            continue
                         before = self.data.geometry[new_assignments == i]
                         after = before[before.index != starting_vtd]
                         if count_polygons(after.unary_union) > count_polygons(before.unary_union):
@@ -245,13 +249,13 @@ class RedistrictingGeneticAlgorithm:
                     else:
                         break
                     attempts += 1
-                    if attempts == 10:
+                    if attempts == 10 or attempts >= len(eligible_vtds):
                         break
-                if attempts == 10:
+                if attempts == 10 or attempts >= len(eligible_vtds):
                     continue
 
                 eligible_vtds.sort_values(key=lambda x: self.data.geometry[x].distance(
-                    self.data.geometry[starting_vtd]))
+                    self.data.geometry[starting_vtd]), inplace=True)
                 eligible_vtds = eligible_vtds.values[:size]
 
                 selected, low, high = eligible_vtds.copy(), 0, len(eligible_vtds)
@@ -277,12 +281,26 @@ class RedistrictingGeneticAlgorithm:
                     selected = eligible_vtds[:(low + high) // 2]
 
                 for i in np.unique(new_assignments[selected]):
+                    if i == district_idx:
+                        continue
                     before = self.data.geometry[new_assignments == i]
                     after = before[~before.index.isin(selected)]
                     if count_polygons(after.unary_union) > count_polygons(before.unary_union):
                         print('Contiguity system failed!')
 
+                sizes[size] = len(selected)
                 new_assignments[selected] = district_idx
+                change[selected] = m + 1
+
+            # print(n_mutations, sizes)
+            # to_plot = self.data.copy()
+            # to_plot['old_district'] = assignments
+            # to_plot['new_district'] = new_assignments
+            # to_plot['change'] = change
+            # to_plot.plot('old_district')
+            # to_plot.plot('new_district')
+            # to_plot.plot('change')
+            # plt.show()
 
             population.append(new_assignments)
             if len(population) == self.population_size:
@@ -293,10 +311,8 @@ class RedistrictingGeneticAlgorithm:
     def plot(self, best_assignments):
         to_plot = self.data.copy()
         to_plot['district'] = best_assignments
-        colors = plt.cm.hsv(np.linspace(0, 1, self.n_districts + 1)[:-1])
-        custom_colormap = mcolors.LinearSegmentedColormap.from_list("custom_colormap", colors)
         fig, ax = plt.subplots(1, 1, figsize=(10, 10))
-        to_plot.plot(column='district', ax=ax, cmap=custom_colormap)
+        to_plot.plot(column='district', ax=ax, cmap='tab20')
         ax.set_title('Congressional Districts')
         plt.savefig(f'{self.save_dir}/{self.start.strftime("%Y-%m-%d-%H-%M-%S")}-{self.generation}')
         plt.close(fig)
@@ -317,7 +333,7 @@ class RedistrictingGeneticAlgorithm:
             self.plot(selected[0])
 
         print(f'{time(self.start)} - Generation: {self.generation:,} - Mutating for new generation...')
-        self.population = self.mutate(selected, metrics_list)
+        self.population = self.mutate(selected)
         self.generation += 1
 
     def run(self, generations=1):

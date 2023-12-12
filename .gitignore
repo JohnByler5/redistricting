@@ -2,5 +2,6 @@
 .idea/
 venv/
 
-# Models
+# Models and results
 models/
+maps/
