@@ -73,7 +73,8 @@ class RedistrictingGeneticAlgorithm:
             population_size=100,
             selection_pct=0.5,
             mutation_n_range=(0.0, 1.0),
-            mutation_size_range=(0.0, 0.50),
+            mutation_layer_range=(1, 1),
+            mutation_size_range=(0.0, 1.00),
             expansion_population_bias=0,
             reduction_population_bias=0,
             expansion_distance_bias=0,
@@ -112,6 +113,7 @@ class RedistrictingGeneticAlgorithm:
         self.population_size = population_size
         self.selection_pct = selection_pct
         self.mutation_n_range = mutation_n_range
+        self.mutation_layer_range = mutation_layer_range
         self.mutation_size_range = mutation_size_range
         self.expansion_population_bias = expansion_population_bias
         self.reduction_population_bias = reduction_population_bias
@@ -313,8 +315,8 @@ class RedistrictingGeneticAlgorithm:
         return count_polygons(new) <= count_polygons(previous)
 
     def _choose_start(self, eligible, assignments, previous_unions, p):
-        attempts = 0
-        while attempts < len(eligible):
+        attempts, max_attempts = 0, (p > 10e-6).sum()
+        while attempts < max_attempts:
             i = np.random.choice(range(len(eligible)), p=p)
             x = eligible.iloc[i]
             if self._check_contiguity(previous_unions, assignments[x], assignments, [x]):
@@ -324,11 +326,12 @@ class RedistrictingGeneticAlgorithm:
             attempts += 1
         return None
 
-    def _select_mutations(self, eligible, assignments, p):
+    def _select_mutations(self, eligible, assignments, p, start=None):
         previous_unions = {}
-        start = self._choose_start(eligible, assignments, previous_unions, p)
         if start is None:
-            return None
+            start = self._choose_start(eligible, assignments, previous_unions, p)
+            if start is None:
+                return None, None
         eligible = eligible.sort_values(key=lambda x: self.data.geometry[x].distance(
             self.data.geometry[start])).values[:self._rand_mutation_size(len(eligible))]
         selected, bounds = eligible.copy(), np.array([0, len(eligible)])
@@ -342,7 +345,7 @@ class RedistrictingGeneticAlgorithm:
                     break
             bounds[which_bound] = len(selected)
             selected = eligible[:int(bounds.mean())]
-        return selected
+        return selected, start
 
     def _get_border(self, assignments, which, reverse=False):
         if reverse:
@@ -352,55 +355,60 @@ class RedistrictingGeneticAlgorithm:
         return self.neighbors[(assignments[i1] == which) & (assignments[i2] != which)]['index_right'].drop_duplicates()
 
     def _expansion(self, assignments, district_idx):
-        eligible = self._get_border(assignments, district_idx)
-        if eligible.empty:
-            return
-        weights = (self.data['population'].groupby(by=assignments).sum()[
-            assignments[eligible]] ** self.reduction_population_bias).values
-        weights *= (self.data.geometry[eligible].distance(self.data.geometry[
-            assignments == district_idx].unary_union.centroid) ** self.expansion_distance_bias).values
-        neighbors = self.neighbors[assignments[self.neighbors['index_right']] == district_idx]['index_right']
-        neighbors = neighbors[eligible[eligible.isin(neighbors.index)]]
-        neighbors = neighbors.groupby(by=neighbors.index).apply(len).reindex(eligible, fill_value=0) + 1
-        weights *= (neighbors ** self.expansion_surrounding_bias).values
-        selected = self._select_mutations(eligible, assignments, calculate_p(weights))
-        if selected is None:
-            return
-        assignments[selected] = district_idx
+        for _ in range(np.random.randint(low=max(self.mutation_layer_range[0], 1),
+                                         high=max(self.mutation_layer_range[1], 1) + 1)):
+            eligible = self._get_border(assignments, district_idx)
+            if eligible.empty:
+                return
+            weights = (self.data['population'].groupby(by=assignments).sum()[
+                assignments[eligible]] ** self.reduction_population_bias).values
+            weights *= (self.data.geometry[eligible].distance(self.data.geometry[
+                assignments == district_idx].unary_union.centroid) ** self.expansion_distance_bias).values
+            neighbors = self.neighbors[assignments[self.neighbors['index_right']] == district_idx]['index_right']
+            neighbors = neighbors[eligible[eligible.isin(neighbors.index)]]
+            neighbors = neighbors.groupby(by=neighbors.index).apply(len).reindex(eligible, fill_value=0) + 1
+            weights *= (neighbors ** self.expansion_surrounding_bias).values
+            selected, start = self._select_mutations(eligible, assignments, calculate_p(weights))
+            if selected is None:
+                return
+            assignments[selected] = district_idx
 
     def _reduction(self, assignments, district_idx):
-        eligible = self._get_border(assignments, district_idx, reverse=True)
-        if eligible.empty:
-            return
-        weights = (self.data.geometry[eligible].distance(self.data.geometry[
-            assignments == district_idx].unary_union.centroid) ** self.reduction_distance_bias).values
-        neighbors = self.neighbors[assignments[self.neighbors['index_right']] == district_idx]['index_right']
-        neighbors = neighbors[eligible[eligible.isin(neighbors.index)]]
-        neighbors = neighbors.groupby(by=neighbors.index).apply(len).reindex(eligible, fill_value=0) + 1
-        weights *= (neighbors.astype(float) ** self.reduction_surrounding_bias).values
-        selected = self._select_mutations(eligible, assignments, calculate_p(weights))
-        if selected is None:
-            return
+        start = None
+        for _ in range(np.random.randint(low=max(self.mutation_layer_range[0], 1),
+                                         high=max(self.mutation_layer_range[1], 1) + 1)):
+            eligible = self._get_border(assignments, district_idx, reverse=True)
+            if eligible.empty:
+                return
+            weights = (self.data.geometry[eligible].distance(self.data.geometry[
+                assignments == district_idx].unary_union.centroid) ** self.reduction_distance_bias).values
+            neighbors = self.neighbors[assignments[self.neighbors['index_right']] == district_idx]['index_right']
+            neighbors = neighbors[eligible[eligible.isin(neighbors.index)]]
+            neighbors = neighbors.groupby(by=neighbors.index).apply(len).reindex(eligible, fill_value=0) + 1
+            weights *= (neighbors.astype(float) ** self.reduction_surrounding_bias).values
+            selected, start = self._select_mutations(eligible, assignments, calculate_p(weights), start)
+            if selected is None:
+                return
 
-        neighbors = self.neighbors['index_right'][self.neighbors['index_right'] != district_idx]
-        populations = self.data['population'].groupby(by=assignments).sum()
-        centroids = {}
-        for i in np.unique(assignments[neighbors]):
-            mask = assignments == i
-            geometries = self.data.geometry[mask]
-            centroids[i] = self._calculate_union(mask, geometries).centroid
-        district_selections, selection = [], None
-        for x in selected:
-            neighbor_districts = np.unique(assignments[neighbors[[x]]])
-            if selection is None or selection not in neighbor_districts:
-                neighbor_centroids = np.array([centroids[i] for i in neighbor_districts])
-                weights = np.array([populations[i] for i in neighbor_districts]) ** self.expansion_population_bias * (
-                    self.data.geometry[x].distance(neighbor_centroids) ** self.expansion_distance_bias)
-                p = calculate_p(weights)
-                selection = np.random.choice(neighbor_districts, p=p)
-            district_selections.append(selection)
+            neighbors = self.neighbors['index_right'][self.neighbors['index_right'] != district_idx]
+            populations = self.data['population'].groupby(by=assignments).sum()
+            centroids = {}
+            for i in np.unique(assignments[neighbors]):
+                mask = assignments == i
+                geometries = self.data.geometry[mask]
+                centroids[i] = self._calculate_union(mask, geometries).centroid
+            district_selections, selection = [], None
+            for x in selected:
+                neighbor_districts = np.unique(assignments[neighbors[[x]]])
+                if selection is None or selection not in neighbor_districts:
+                    neighbor_centroids = np.array([centroids[i] for i in neighbor_districts])
+                    weights = np.array([populations[i] for i in neighbor_districts]) ** self.expansion_population_bias * (
+                        self.data.geometry[x].distance(neighbor_centroids) ** self.expansion_distance_bias)
+                    p = calculate_p(weights)
+                    selection = np.random.choice(neighbor_districts, p=p)
+                district_selections.append(selection)
 
-        assignments[selected] = district_selections
+            assignments[selected] = district_selections
 
     def _mutation(self, assignments):
         district_idx = np.random.choice(np.array(range(self.n_districts)))
@@ -490,11 +498,12 @@ def main():
         save_every=10,
         weights={
             'pop_balance': 1,
-            'compactness': 3,
+            'compactness': 1,
         },
         population_size=25,
         selection_pct=0.2,
         mutation_n_range=(0.0, 1.0),
+        mutation_layer_range=(1, 10),
         mutation_size_range=(0.0, 1.0),
         expansion_population_bias=-10,
         reduction_population_bias=10,
