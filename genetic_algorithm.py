@@ -1,15 +1,15 @@
 import copy
 import datetime as dt
 import itertools
-from collections import deque
 
 import geopandas as gpd
 import matplotlib.pyplot as plt
 import numpy as np
+import pandas as pd
 import topojson as tp
+from shapely.errors import GEOSException
 from shapely.geometry import Polygon, MultiPolygon, LineString, MultiLineString
 from shapely.geometry.collection import GeometryCollection
-from shapely.errors import GEOSException
 
 
 def time(start):
@@ -54,29 +54,6 @@ def union_from_difference(before, geometries, removals):
         return geometries.unary_union
 
 
-def calculate_bbox_score(bounds1, bounds2):
-    # Calculate intersection bounds
-    intersection_min_x = max(bounds1[0], bounds2[0])
-    intersection_max_x = min(bounds1[2], bounds2[2])
-    intersection_min_y = max(bounds1[1], bounds2[1])
-    intersection_max_y = min(bounds1[3], bounds2[3])
-
-    # Compute intersection area
-    intersection_width = max(0, intersection_max_x - intersection_min_x)
-    intersection_height = max(0, intersection_max_y - intersection_min_y)
-    intersection_area = intersection_width * intersection_height
-
-    # Compute areas of the bounding boxes
-    area1 = (bounds1[2] - bounds1[0]) * (bounds1[3] - bounds1[1])
-    area2 = (bounds2[2] - bounds2[0]) * (bounds2[3] - bounds2[1])
-
-    # Avoid division by zero
-    if area1 == 0 or area2 == 0:
-        return 0
-
-    return (intersection_area * 2 - area1) / area2
-
-
 def calculate_p(weights):
     p = np.nan_to_num(weights / weights.sum())
     if p.sum() != 1:
@@ -112,7 +89,6 @@ class RedistrictingGeneticAlgorithm:
 
         self.data = gpd.read_parquet(data_path)
 
-        _ = self.data.sindex  # "_ = " is just to get rid of the PyCharm notice, but it is unnecessary
         self.neighbors = gpd.sjoin(self.data, self.data, how='inner', predicate='touches')
         self.neighbors = self.neighbors[self.neighbors.index != self.neighbors['index_right']]
 
@@ -154,7 +130,22 @@ class RedistrictingGeneticAlgorithm:
         self.population = [self.random_map() for _ in range(starting_population_size)]
         self.current_mutation_size_range = mutation_size_range
 
-        self.union_cache = deque(maxlen=1_000)
+        self.union_cache = gpd.GeoDataFrame(data=[[[None for _ in range(len(self.data))]] for _ in range(1_000)],
+                                            columns=['mask'], geometry=[None for _ in range(1_000)])
+        self.union_cache_count = 0
+
+    def append_union_cache(self, mask, union):
+        self.union_cache.at[self.union_cache_count, 'mask'] = mask
+        self.union_cache.at[self.union_cache_count, 'geometry'] = union
+        self.union_cache_count += 1
+
+        if self.union_cache_count == len(self.union_cache):
+            original = self.union_cache[len(self.union_cache) // 2:]
+            empty_len = len(self.union_cache) - len(original)
+            empty = gpd.GeoDataFrame(data=[[[None for _ in range(len(self.data))]] for _ in range(empty_len)],
+                                     columns=['mask'], geometry=[None for _ in range(empty_len)])
+            self.union_cache = pd.concat([original, empty]).reset_index(drop=True)
+            self.union_cache_count = len(original)
 
     def random_map(self):
         assignments = np.full(len(self.data), -1)
@@ -217,19 +208,35 @@ class RedistrictingGeneticAlgorithm:
     def calculate_compactness(district_map):
         return (4 * np.pi * district_map.geometry.area / district_map.geometry.length ** 2).mean()
 
-    def find_closest_union(self, bounds):
-        best, best_score = (None, None), 0
-        for union, mask in self.union_cache:
-            score = calculate_bbox_score(union.bounds, bounds)
-            if score > best_score:
-                best, best_score = (union, mask), score
-        return best, best_score
+    def calculate_bbox_score(self, bounds):
+        bounds_series = self.union_cache.geometry[:self.union_cache_count].bounds
+        u_minx, u_miny, u_maxx, u_maxy = [bounds_series[s] for s in ['minx', 'miny', 'maxx', 'maxy']]
+
+        intersection_width = np.maximum(np.minimum(u_maxx, bounds[2]) - np.maximum(u_minx, bounds[0]), 0)
+        intersection_height = np.maximum(np.minimum(u_maxy, bounds[3]) - np.maximum(u_miny, bounds[1]), 0)
+        intersection_area = intersection_width * intersection_height
+
+        u_area = (u_maxx - u_minx) * (u_maxy - u_miny)
+        b_area = (bounds[2] - bounds[0]) * (bounds[3] - bounds[1])
+        if b_area == 0:
+            return np.zeroes(self.union_cache_count)
+
+        scores = (intersection_area * 2 - u_area) / b_area
+        scores[u_area == 0] = 0
+        return scores.values
+
+    def _find_closest_union(self, bounds):
+        scores = self.calculate_bbox_score(bounds)
+        if not len(scores):
+            return None, None, 0
+        i = scores.argmax()
+        return self.union_cache.geometry[i], self.union_cache['mask'][i], scores[i]
 
     def _calculate_union(self, mask, geometries=None):
         if geometries is None:
             geometries = self.data.geometry[mask]
-        (prev_union, prev_mask), score = self.find_closest_union(geometries.total_bounds)
-        if score > 0.3:
+        prev_union, prev_mask, score = self._find_closest_union(geometries.total_bounds)
+        if score > 0.2:
             try:
                 geometry = prev_union
                 to_subtract = self.data.geometry[prev_mask & (~mask)]
@@ -251,7 +258,7 @@ class RedistrictingGeneticAlgorithm:
                 geometry = Polygon(np.zeros(6).reshape(3, 2))
             else:
                 geometry = self._calculate_union(mask)
-                self.union_cache.append((geometry, mask))
+                self.append_union_cache(mask, geometry)
 
             district_data.append({
                 'district': district_index,
@@ -306,13 +313,15 @@ class RedistrictingGeneticAlgorithm:
         return count_polygons(new) <= count_polygons(previous)
 
     def _choose_start(self, eligible, assignments, previous_unions, p):
-        while p.sum():
+        attempts = 0
+        while attempts < len(eligible):
             i = np.random.choice(range(len(eligible)), p=p)
             x = eligible.iloc[i]
             if self._check_contiguity(previous_unions, assignments[x], assignments, [x]):
                 return x
             p[i] = 0
             p = calculate_p(p)
+            attempts += 1
         return None
 
     def _select_mutations(self, eligible, assignments, p):
@@ -480,8 +489,8 @@ def main():
         save_dir='maps',
         save_every=10,
         weights={
-            'pop_balance': 5,
-            'compactness': 1,
+            'pop_balance': 1,
+            'compactness': 3,
         },
         population_size=25,
         selection_pct=0.2,
@@ -493,12 +502,12 @@ def main():
         reduction_distance_bias=10,
         expansion_surrounding_bias=2,
         reduction_surrounding_bias=-2,
-        starting_population_size=100,
+        starting_population_size=1_000,
         mutation_size_decay=0.8 ** (1 / 100),
-        use_reduction=False,
+        use_reduction=True,
     )
 
-    algorithm.run(generations=1_000)
+    algorithm.run(generations=3_000)
 
 
 if __name__ == '__main__':
