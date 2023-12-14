@@ -315,7 +315,7 @@ class RedistrictingGeneticAlgorithm:
         return count_polygons(new) <= count_polygons(previous)
 
     def _choose_start(self, eligible, assignments, previous_unions, p):
-        attempts, max_attempts = 0, (p > 10e-6).sum()
+        attempts, max_attempts = 0, (p > 10e-5).sum()
         while attempts < max_attempts:
             i = np.random.choice(range(len(eligible)), p=p)
             x = eligible.iloc[i]
@@ -326,14 +326,15 @@ class RedistrictingGeneticAlgorithm:
             attempts += 1
         return None
 
-    def _select_mutations(self, eligible, assignments, p, start=None):
+    def _select_mutations(self, eligible, assignments, p, centroid, start=None):
         previous_unions = {}
         if start is None:
             start = self._choose_start(eligible, assignments, previous_unions, p)
             if start is None:
                 return None, None
-        eligible = eligible.sort_values(key=lambda x: self.data.geometry[x].distance(
-            self.data.geometry[start])).values[:self._rand_mutation_size(len(eligible))]
+        eligible = eligible.sort_values(key=lambda x: np.sqrt(self.data.geometry[x].distance(
+            self.data.geometry[start]) ** 2 + self.data.geometry[x].distance(
+            self.data.geometry[centroid]) ** 2)).values[:self._rand_mutation_size(len(eligible))]
         selected, bounds = eligible.copy(), np.array([0, len(eligible)])
         while True:
             if bounds[0] + 1 >= bounds[1]:
@@ -354,7 +355,8 @@ class RedistrictingGeneticAlgorithm:
             i1, i2 = self.neighbors.index, self.neighbors['index_right']
         return self.neighbors[(assignments[i1] == which) & (assignments[i2] != which)]['index_right'].drop_duplicates()
 
-    def _expansion(self, assignments, district_idx):
+    def _expansion(self, assignments, district_idx, centroid):
+        start = None
         for _ in range(np.random.randint(low=max(self.mutation_layer_range[0], 1),
                                          high=max(self.mutation_layer_range[1], 1) + 1)):
             eligible = self._get_border(assignments, district_idx)
@@ -368,12 +370,12 @@ class RedistrictingGeneticAlgorithm:
             neighbors = neighbors[eligible[eligible.isin(neighbors.index)]]
             neighbors = neighbors.groupby(by=neighbors.index).apply(len).reindex(eligible, fill_value=0) + 1
             weights *= (neighbors ** self.expansion_surrounding_bias).values
-            selected, start = self._select_mutations(eligible, assignments, calculate_p(weights))
+            selected, start = self._select_mutations(eligible, assignments, calculate_p(weights), centroid, start)
             if selected is None:
                 return
             assignments[selected] = district_idx
 
-    def _reduction(self, assignments, district_idx):
+    def _reduction(self, assignments, district_idx, centroid):
         start = None
         for _ in range(np.random.randint(low=max(self.mutation_layer_range[0], 1),
                                          high=max(self.mutation_layer_range[1], 1) + 1)):
@@ -386,7 +388,7 @@ class RedistrictingGeneticAlgorithm:
             neighbors = neighbors[eligible[eligible.isin(neighbors.index)]]
             neighbors = neighbors.groupby(by=neighbors.index).apply(len).reindex(eligible, fill_value=0) + 1
             weights *= (neighbors.astype(float) ** self.reduction_surrounding_bias).values
-            selected, start = self._select_mutations(eligible, assignments, calculate_p(weights), start)
+            selected, start = self._select_mutations(eligible, assignments, calculate_p(weights), centroid, start)
             if selected is None:
                 return
 
@@ -412,12 +414,13 @@ class RedistrictingGeneticAlgorithm:
 
     def _mutation(self, assignments):
         district_idx = np.random.choice(np.array(range(self.n_districts)))
+        centroid = self._calculate_union(assignments == district_idx).centroid
         population_pct = self.data['population'][assignments == district_idx].sum() / self.ideal_pop
         p = calculate_p(np.array([population_pct ** self.expansion_population_bias, 1]))
         if (not self.use_reduction) or (np.random.random() < p[0]):
-            self._expansion(assignments, district_idx)
+            self._expansion(assignments, district_idx, centroid)
         else:
-            self._reduction(assignments, district_idx)
+            self._reduction(assignments, district_idx, centroid)
 
     def mutate(self, selected):
         population = copy.deepcopy(selected)
