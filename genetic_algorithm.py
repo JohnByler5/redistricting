@@ -110,6 +110,7 @@ class RedistrictingGeneticAlgorithm:
             'pop_balance': 1,
             'compactness': 1,
             'competitiveness': 1,
+            'efficiency_gap': 1,
         }
         for key in weights:
             if key in self.weights:
@@ -214,6 +215,16 @@ class RedistrictingGeneticAlgorithm:
         return (np.maximum(district_map['democrat'], district_map['republican']) / (
                 district_map['democrat'] + district_map['republican'])).mean()
 
+    @staticmethod
+    def calculate_efficiency_gap(district_map):
+        district_map['total_votes'] = district_map['democrat'] + district_map['republican']
+        district_map['votes_needed'] = np.floor(district_map['total_votes']) + 1
+        rep_wv = (district_map['republican'] - (district_map['votes_needed'] * (
+            district_map['republican'] >= district_map['democrat']))).sum()
+        dem_wv = (district_map['democrat'] - (district_map['votes_needed'] * (
+            district_map['democrat'] >= district_map['republican']))).sum()
+        return np.abs(dem_wv - rep_wv) / district_map['total_votes'].sum()
+
     def calculate_bbox_score(self, bounds):
         bounds_series = self.union_cache.geometry[:self.union_cache_count].bounds
         u_minx, u_miny, u_maxx, u_maxy = [bounds_series[s] for s in ['minx', 'miny', 'maxx', 'maxy']]
@@ -285,17 +296,19 @@ class RedistrictingGeneticAlgorithm:
             pop_balance = self.calculate_population_balance(district_map)
             compactness = self.calculate_compactness(district_map)
             competitiveness = self.calculate_competitiveness(district_map)
+            efficiency_gap = self.calculate_efficiency_gap(district_map)
 
-            fitness = pop_balance * self.weights['pop_balance'] + compactness * self.weights['compactness'] + \
-                (1 - competitiveness) * 2 * self.weights['competitiveness']
-            scores[i] = fitness
+            scores[i] = pop_balance * self.weights['pop_balance'] + compactness * self.weights['compactness'] + \
+                (1 - competitiveness) * 2 * self.weights['competitiveness'] + (1 - efficiency_gap) * \
+                self.weights['efficiency_gap']
 
             metrics_list.append({
-                'Fitness': f'{fitness:.4f}',
+                'Fitness': f'{scores[i]:.4f}',
                 'Contiguity': f'{contiguity:.4%}',
                 'Population Balance': f'{pop_balance:.4%}',
                 'Compactness': f'{compactness:.4%}',
                 'Competitiveness': f'{competitiveness:.4%}',
+                'Efficiency Gap': f'{efficiency_gap:.4%}'
             })
 
         return scores, metrics_list
@@ -518,6 +531,7 @@ def main():
             'pop_balance': 4,
             'compactness': 1,
             'competitiveness': 1,
+            'efficiency_gap': 1,
         },
         population_size=2,
         selection_pct=0.5,
