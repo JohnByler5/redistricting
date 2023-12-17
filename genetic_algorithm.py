@@ -89,6 +89,8 @@ class RedistrictingGeneticAlgorithm:
             raise ValueError('Parameter `selection_pct` must be less than or equal to `0.5`.')
 
         self.data = gpd.read_parquet(data_path)
+        num_cols = self.data.select_dtypes(np.number).columns
+        self.data[num_cols] = self.data[num_cols].astype(np.float64)
 
         self.neighbors = gpd.sjoin(self.data, self.data, how='inner', predicate='touches')
         self.neighbors = self.neighbors[self.neighbors.index != self.neighbors['index_right']]
@@ -107,6 +109,7 @@ class RedistrictingGeneticAlgorithm:
         self.weights = {
             'pop_balance': 1,
             'compactness': 1,
+            'competitiveness': 1,
         }
         for key in weights:
             if key in self.weights:
@@ -184,10 +187,8 @@ class RedistrictingGeneticAlgorithm:
 
         while n_allocated < len(self.data):
             for i in np.where(assignments == -1)[0]:
-                unallocated_vtd = self.data.geometry[i]
-                indices, distances = self.data.geometry[assignments != -1].sindex.nearest(
-                    unallocated_vtd, return_all=False, exclusive=True, return_distance=True).flatten()
-                closest_vtd = indices[np.argmax(distances)]
+                unallocated = self.data.geometry[i]
+                closest_vtd = np.argmin(unallocated.distance(self.data.geometry[assignments != -1]))
                 if assignments[closest_vtd] == -1:
                     continue
                 assignments[i] = assignments[closest_vtd]
@@ -201,13 +202,17 @@ class RedistrictingGeneticAlgorithm:
         return 1 - total_breaks / max_breaks
 
     def calculate_population_balance(self, district_map):
-        total_difference = (district_map['population'] - self.ideal_pop).abs().sum()
-        max_difference = self.total_pop * (self.n_districts - 1) / self.n_districts * 2
-        return 1 - total_difference / max_difference
+        return (np.minimum(district_map['population'], self.ideal_pop) / np.maximum(
+            district_map['population'], self.ideal_pop)).mean()
 
     @staticmethod
     def calculate_compactness(district_map):
         return (4 * np.pi * district_map.geometry.area / district_map.geometry.length ** 2).mean()
+
+    @staticmethod
+    def calculate_competitiveness(district_map):
+        return (np.maximum(district_map['democrat'], district_map['republican']) / (
+                district_map['democrat'] + district_map['republican'])).mean()
 
     def calculate_bbox_score(self, bounds):
         bounds_series = self.union_cache.geometry[:self.union_cache_count].bounds
@@ -264,7 +269,9 @@ class RedistrictingGeneticAlgorithm:
             district_data.append({
                 'district': district_index,
                 'geometry': geometry,
-                'population': self.data['population'][mask].sum()
+                'population': self.data['population'][mask].sum(),
+                'democrat': self.data['democrat'][mask].sum(),
+                'republican': self.data['republican'][mask].sum(),
             })
 
         return gpd.GeoDataFrame(district_data, crs=self.data.crs)
@@ -277,8 +284,10 @@ class RedistrictingGeneticAlgorithm:
             contiguity = self.calculate_contiguity(district_map)
             pop_balance = self.calculate_population_balance(district_map)
             compactness = self.calculate_compactness(district_map)
+            competitiveness = self.calculate_competitiveness(district_map)
 
-            fitness = pop_balance * self.weights['pop_balance'] + compactness * self.weights['compactness']
+            fitness = pop_balance * self.weights['pop_balance'] + compactness * self.weights['compactness'] + \
+                (1 - competitiveness) * 2 * self.weights['competitiveness']
             scores[i] = fitness
 
             metrics_list.append({
@@ -286,7 +295,7 @@ class RedistrictingGeneticAlgorithm:
                 'Contiguity': f'{contiguity:.4%}',
                 'Population Balance': f'{pop_balance:.4%}',
                 'Compactness': f'{compactness:.4%}',
-                'pop_balance_by_district': district_map['population'] / self.ideal_pop
+                'Competitiveness': f'{competitiveness:.4%}',
             })
 
         return scores, metrics_list
@@ -359,9 +368,9 @@ class RedistrictingGeneticAlgorithm:
         if eligible.empty:
             return start
         weights = (self.data['population'].groupby(by=assignments).sum()[
-                       assignments[eligible]] ** self.reduction_population_bias).values
+            assignments[eligible]] ** self.reduction_population_bias).values
         weights *= (self.data.geometry[eligible].distance(self.data.geometry[
-                                                              assignments == district_idx].unary_union.centroid) ** self.expansion_distance_bias).values
+            assignments == district_idx].unary_union.centroid) ** self.expansion_distance_bias).values
         neighbors = self.neighbors[assignments[self.neighbors['index_right']] == district_idx]['index_right']
         neighbors = neighbors[eligible[eligible.isin(neighbors.index)]]
         neighbors = neighbors.groupby(by=neighbors.index).apply(len).reindex(eligible, fill_value=0) + 1
@@ -377,11 +386,11 @@ class RedistrictingGeneticAlgorithm:
         if eligible.empty:
             return start
         weights = (self.data.geometry[eligible].distance(self.data.geometry[
-                                                             assignments == district_idx].unary_union.centroid) ** self.reduction_distance_bias).values
+            assignments == district_idx].unary_union.centroid) ** self.reduction_distance_bias).values
         neighbors = self.neighbors[assignments[self.neighbors['index_right']] == district_idx]['index_right']
         neighbors = neighbors[eligible[eligible.isin(neighbors.index)]]
         neighbors = neighbors.groupby(by=neighbors.index).apply(len).reindex(eligible, fill_value=0) + 1
-        weights *= (neighbors.astype(float) ** self.reduction_surrounding_bias).values
+        weights *= (neighbors.astype(np.float64) ** self.reduction_surrounding_bias).values
         selected, start = self._select_mutations(eligible, assignments, calculate_p(weights), centroid, start,
                                                  centroid_distance_weight=-1)
         if selected is None:
@@ -400,7 +409,7 @@ class RedistrictingGeneticAlgorithm:
             if selection is None or selection not in neighbor_districts:
                 neighbor_centroids = np.array([centroids[i] for i in neighbor_districts])
                 weights = np.array([populations[i] for i in neighbor_districts]) ** self.expansion_population_bias * (
-                        self.data.geometry[x].distance(neighbor_centroids) ** self.expansion_distance_bias)
+                    self.data.geometry[x].distance(neighbor_centroids) ** self.expansion_distance_bias)
                 p = calculate_p(weights)
                 selection = np.random.choice(neighbor_districts, p=p)
             district_selections.append(selection)
@@ -479,7 +488,7 @@ class RedistrictingGeneticAlgorithm:
         self.log(f'{self.time()} - Filling population...')
         self.fill_population(clear=True)
 
-        self.log(f'{self.time()} - Simulating for {generations} generations...')
+        self.log(f'{self.time()} - Simulating for {generations,} generations...')
         for generation in range(generations + 1):
             self.simulate_generation(last=generation == generations)
 
@@ -487,15 +496,13 @@ class RedistrictingGeneticAlgorithm:
 def main():
     start = dt.datetime.now()
 
-    refresh_data = True
+    refresh_data = False
     if refresh_data:
         print(f'{time(start)} - Refreshing data...')
-        voter_data = gpd.read_file('data/pa/pa_gen_20_')
-        input()
-        data = gpd.read_file('data/pa/vtd-census-data.shp')
-        data = data.to_crs(infer_utm_crs(data))
-        data.rename(columns={'P0010001': 'population'}, inplace=True)
-        data = tp.Topology(data, prequantize=False).toposimplify(100).to_gdf()
+        data = gpd.read_file('data/pa/vtd-election-and-census-data-14-20.shp')
+        data.to_crs(infer_utm_crs(data), inplace=True)
+        data.rename(columns={'TOTPOP20': 'population', 'PRES20D': 'democrat', 'PRES20R': 'republican'}, inplace=True)
+        data = tp.Topology(data, prequantize=False).toposimplify(50).to_gdf()
         data.geometry[~data.geometry.is_valid] = data.geometry[~data.geometry.is_valid].buffer(0)
         data.to_parquet('data/pa/simplified.parquet')
 
@@ -510,6 +517,7 @@ def main():
         weights={
             'pop_balance': 4,
             'compactness': 1,
+            'competitiveness': 1,
         },
         population_size=2,
         selection_pct=0.5,

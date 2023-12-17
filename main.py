@@ -17,7 +17,7 @@ def main():
     print(f'{time(start)} - Creating env...')
     verbose = True
     weights = {}
-    env = RedistrictingEnv('data/pa/WP_VotingDistricts.shp', verbose=verbose, start=start, weights=weights)
+    env = RedistrictingEnv('data/pa/vtd-census-data-20.shp', verbose=verbose, start=start, weights=weights)
 
     # Create the PPO agent
     print(f'{time(start)} - Creating agent...')
