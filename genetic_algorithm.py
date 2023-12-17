@@ -70,6 +70,7 @@ class RedistrictingGeneticAlgorithm:
             save_dir=None,
             save_every=1,
             log_path='log.txt',
+            live_plot=True,
             weights=None,
             population_size=100,
             selection_pct=0.5,
@@ -105,6 +106,8 @@ class RedistrictingGeneticAlgorithm:
         self.save_every = save_every
         self.log_path = log_path
         open(self.log_path, 'w').close()
+        self.live_plot = live_plot
+        self.fig, self.ax = plt.subplots(figsize=(10, 10))
 
         self.weights = {
             'pop_balance': 1,
@@ -336,7 +339,7 @@ class RedistrictingGeneticAlgorithm:
         return count_polygons(new) <= count_polygons(previous)
 
     def _choose_start(self, eligible, assignments, previous_unions, p):
-        attempts, max_attempts = 0, (p > 10e-4).sum()
+        attempts, max_attempts = 0, (p > 10e-3).sum()
         while attempts < max_attempts:
             i = np.random.choice(range(len(eligible)), p=p)
             x = eligible.iloc[i]
@@ -455,14 +458,20 @@ class RedistrictingGeneticAlgorithm:
                 break
         return population
 
-    def plot(self, best_assignments):
-        to_plot = self.data.copy()
-        to_plot['district'] = best_assignments
-        fig, ax = plt.subplots(1, 1, figsize=(10, 10))
-        to_plot.plot(column='district', ax=ax, cmap='tab20')
-        ax.set_title('Congressional Districts')
-        plt.savefig(f'{self.save_dir}/{self.start.strftime("%Y-%m-%d-%H-%M-%S")}-{self.generation}')
-        plt.close(fig)
+    def _plot(self, assignments):
+        draw = self.live_plot and ('_temp_district' not in self.data or
+                                   (self.data['_temp_district'] != assignments).any())
+        save = self.save_dir is not None and self.save_every > 0 and self.generation % self.save_every == 0
+        if not (save or draw):
+            return
+        self.data['_temp_district'] = assignments
+        self.ax.clear()
+        self.data.plot(column='_temp_district', ax=self.ax, cmap='tab20')
+        if draw:
+            plt.draw()
+            plt.pause(0.10)
+        if save:
+            self.fig.savefig(f'{self.save_dir}/{self.start.strftime("%Y-%m-%d-%H-%M-%S")}-{self.generation}')
 
     def time(self):
         return f'{dt.timedelta(seconds=round((dt.datetime.now() - self.start).total_seconds()))}'
@@ -483,9 +492,8 @@ class RedistrictingGeneticAlgorithm:
         self.log(f'{self.time()} - Generation: {self.generation:,} - '
                  f'{" | ".join(metric_str for metric_str in metric_strs)}')
 
-        if self.save_dir is not None and self.generation % self.save_every == 0:
-            self.log(f'{self.time()} - Generation: {self.generation:,} - Plotting best map...')
-            self.plot(selected[0])
+        self.log(f'{self.time()} - Generation: {self.generation:,} - Plotting best map...')
+        self._plot(selected[0])
 
         if not last:
             self.log(f'{self.time()} - Generation: {self.generation:,} - Mutating for new generation...')
@@ -498,12 +506,20 @@ class RedistrictingGeneticAlgorithm:
             )
 
     def run(self, generations=1):
+        if self.live_plot:
+            plt.ion()
+
         self.log(f'{self.time()} - Filling population...')
         self.fill_population(clear=True)
 
-        self.log(f'{self.time()} - Simulating for {generations,} generations...')
+        self.log(f'{self.time()} - Simulating for {generations:,} generations...')
         for generation in range(generations + 1):
             self.simulate_generation(last=generation == generations)
+
+        self.log(f'{self.time()} - Simulation complete!')
+        if self.live_plot:
+            plt.ioff()
+            plt.show()
 
 
 def main():
@@ -525,12 +541,13 @@ def main():
         start=start,
         verbose=True,
         save_dir='maps',
-        save_every=100,
+        save_every=0,
         log_path='log.txt',
+        live_plot=True,
         weights={
             'pop_balance': 4,
             'compactness': 1,
-            'competitiveness': 1,
+            'competitiveness': 2,
             'efficiency_gap': 1,
         },
         population_size=2,
