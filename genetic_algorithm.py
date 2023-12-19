@@ -71,6 +71,7 @@ class RedistrictingGeneticAlgorithm:
             save_every=1,
             log_path='log.txt',
             live_plot=True,
+            n_districts=17,
             weights=None,
             population_size=100,
             selection_pct=0.5,
@@ -84,7 +85,9 @@ class RedistrictingGeneticAlgorithm:
             expansion_surrounding_bias=0,
             reduction_surrounding_bias=0,
             starting_population_size=None,
+            mutation_n_growth=1.0,
             mutation_size_decay=1.0,
+            bias_decay=1.0,
     ):
         if selection_pct > 0.5:
             raise ValueError('Parameter `selection_pct` must be less than or equal to `0.5`.')
@@ -96,10 +99,6 @@ class RedistrictingGeneticAlgorithm:
         self.neighbors = gpd.sjoin(self.data, self.data, how='inner', predicate='touches')
         self.neighbors = self.neighbors[self.neighbors.index != self.neighbors['index_right']]
 
-        self.total_pop = self.data['population'].sum()
-        self.n_districts = 17
-        self.ideal_pop = self.total_pop / self.n_districts
-
         self.verbose = verbose
         self.start = start
         self.save_dir = save_dir
@@ -108,6 +107,10 @@ class RedistrictingGeneticAlgorithm:
         open(self.log_path, 'w').close()
         self.live_plot = live_plot
         self.fig, self.ax = plt.subplots(figsize=(10, 10))
+
+        self.n_districts = n_districts
+        self.total_pop = self.data['population'].sum()
+        self.ideal_pop = self.total_pop / self.n_districts
 
         self.weights = {
             'pop_balance': 1,
@@ -133,11 +136,20 @@ class RedistrictingGeneticAlgorithm:
         if starting_population_size is None:
             starting_population_size = population_size
         self.starting_population_size = starting_population_size
+        self.mutation_n_growth = mutation_n_growth
         self.mutation_size_decay = mutation_size_decay
+        self.bias_decay = bias_decay
 
         self.generation = 0
         self.population = []
+        self.current_mutation_n_range = mutation_n_range
         self.current_mutation_size_range = mutation_size_range
+        self.current_expansion_population_bias = expansion_population_bias
+        self.current_reduction_population_bias = reduction_population_bias
+        self.current_expansion_distance_bias = expansion_distance_bias
+        self.current_reduction_distance_bias = reduction_distance_bias
+        self.current_expansion_surrounding_bias = expansion_surrounding_bias
+        self.current_reduction_surrounding_bias = reduction_surrounding_bias
 
         self.union_cache = gpd.GeoDataFrame(data=[[[None for _ in range(len(self.data))]] for _ in range(1_000)],
                                             columns=['mask'], geometry=[None for _ in range(1_000)])
@@ -384,13 +396,13 @@ class RedistrictingGeneticAlgorithm:
         if eligible.empty:
             return start
         weights = (self.data['population'].groupby(by=assignments).sum()[
-            assignments[eligible]] ** self.reduction_population_bias).values
+            assignments[eligible]] ** self.current_reduction_population_bias).values
         weights *= (self.data.geometry[eligible].distance(self.data.geometry[
-            assignments == district_idx].unary_union.centroid) ** self.expansion_distance_bias).values
+            assignments == district_idx].unary_union.centroid) ** self.current_expansion_distance_bias).values
         neighbors = self.neighbors[assignments[self.neighbors['index_right']] == district_idx]['index_right']
         neighbors = neighbors[eligible[eligible.isin(neighbors.index)]]
         neighbors = neighbors.groupby(by=neighbors.index).apply(len).reindex(eligible, fill_value=0) + 1
-        weights *= (neighbors ** self.expansion_surrounding_bias).values
+        weights *= (neighbors ** self.current_expansion_surrounding_bias).values
         selected, start = self._select_mutations(eligible, assignments, calculate_p(weights), centroid, start,
                                                  centroid_distance_weight=1)
         if selected is not None:
@@ -402,11 +414,11 @@ class RedistrictingGeneticAlgorithm:
         if eligible.empty:
             return start
         weights = (self.data.geometry[eligible].distance(self.data.geometry[
-            assignments == district_idx].unary_union.centroid) ** self.reduction_distance_bias).values
+            assignments == district_idx].unary_union.centroid) ** self.current_reduction_distance_bias).values
         neighbors = self.neighbors[assignments[self.neighbors['index_right']] == district_idx]['index_right']
         neighbors = neighbors[eligible[eligible.isin(neighbors.index)]]
         neighbors = neighbors.groupby(by=neighbors.index).apply(len).reindex(eligible, fill_value=0) + 1
-        weights *= (neighbors.astype(np.float64) ** self.reduction_surrounding_bias).values
+        weights *= (neighbors.astype(np.float64) ** self.current_reduction_surrounding_bias).values
         selected, start = self._select_mutations(eligible, assignments, calculate_p(weights), centroid, start,
                                                  centroid_distance_weight=-1)
         if selected is None:
@@ -424,8 +436,9 @@ class RedistrictingGeneticAlgorithm:
             neighbor_districts = np.unique(assignments[neighbors[[x]]])
             if selection is None or selection not in neighbor_districts:
                 neighbor_centroids = np.array([centroids[i] for i in neighbor_districts])
-                weights = np.array([populations[i] for i in neighbor_districts]) ** self.expansion_population_bias * (
-                    self.data.geometry[x].distance(neighbor_centroids) ** self.expansion_distance_bias)
+                weights = np.array([populations[i] for i in neighbor_districts]) ** \
+                    self.current_expansion_population_bias * (
+                    self.data.geometry[x].distance(neighbor_centroids) ** self.current_expansion_distance_bias)
                 p = calculate_p(weights)
                 selection = np.random.choice(neighbor_districts, p=p)
             district_selections.append(selection)
@@ -439,7 +452,7 @@ class RedistrictingGeneticAlgorithm:
                                          high=max(self.mutation_layer_range[1], 1) + 1)):
             centroid = self._calculate_union(assignments == district_idx).centroid
             population_pct = self.data['population'][assignments == district_idx].sum() / self.ideal_pop
-            p = calculate_p(np.array([population_pct ** self.expansion_population_bias, 1]))
+            p = calculate_p(np.array([population_pct ** self.current_expansion_population_bias, 1]))
             if np.random.random() < p[0]:
                 expand_start = self._expansion(assignments, district_idx, centroid, expand_start)
             else:
@@ -449,10 +462,14 @@ class RedistrictingGeneticAlgorithm:
         population = copy.deepcopy(selected)
         for assignments in itertools.cycle(selected):
             assignments = assignments.copy()
-            n_mutations = np.random.randint(low=max(int(self.mutation_n_range[0] * self.n_districts), 1),
-                                            high=max(int(self.mutation_n_range[1] * self.n_districts), 1) + 1)
-            for i in np.random.choice(np.array(range(self.n_districts)), size=n_mutations, replace=False):
-                self._mutation(assignments, i)
+            n_mutations = np.random.randint(low=max(int(self.current_mutation_n_range[0] * self.n_districts), 1),
+                                            high=max(int(self.current_mutation_n_range[1] * self.n_districts), 1) + 1)
+            districts = list(range(self.n_districts))
+            np.random.shuffle(districts)
+            for i, x in enumerate(itertools.cycle(districts), 1):
+                self._mutation(assignments, x)
+                if i == n_mutations:
+                    break
             population.append(assignments)
             if len(population) == self.population_size:
                 break
@@ -500,10 +517,20 @@ class RedistrictingGeneticAlgorithm:
             self.population = self.mutate(selected)
             self.generation += 1
 
+            self.current_mutation_n_range = (
+                self.current_mutation_n_range[0] * self.mutation_n_growth,
+                self.current_mutation_n_range[1] * self.mutation_n_growth,
+            )
             self.current_mutation_size_range = (
                 self.current_mutation_size_range[0] * self.mutation_size_decay,
                 self.current_mutation_size_range[1] * self.mutation_size_decay,
             )
+            self.current_expansion_population_bias = self.current_expansion_population_bias * self.bias_decay
+            self.current_reduction_population_bias = self.current_reduction_population_bias * self.bias_decay
+            self.current_expansion_distance_bias = self.current_expansion_distance_bias * self.bias_decay
+            self.current_reduction_distance_bias = self.current_reduction_distance_bias * self.bias_decay
+            self.current_expansion_surrounding_bias = self.current_expansion_surrounding_bias * self.bias_decay
+            self.current_reduction_surrounding_bias = self.current_reduction_surrounding_bias * self.bias_decay
 
     def run(self, generations=1):
         if self.live_plot:
@@ -544,15 +571,16 @@ def main():
         save_every=0,
         log_path='log.txt',
         live_plot=True,
+        n_districts=17,
         weights={
             'pop_balance': 4,
             'compactness': 1,
-            'competitiveness': 2,
+            'competitiveness': 1,
             'efficiency_gap': 1,
         },
         population_size=2,
         selection_pct=0.5,
-        mutation_n_range=(0.0, 0.0),
+        mutation_n_range=(0.0, 1 / 17),
         mutation_layer_range=(1, 10),
         mutation_size_range=(0.0, 1.0),
         expansion_population_bias=-10,
@@ -562,7 +590,9 @@ def main():
         expansion_surrounding_bias=2,
         reduction_surrounding_bias=-2,
         starting_population_size=1_000,
-        mutation_size_decay=0.95 ** (1 / 100),
+        mutation_n_growth=17 ** (1 / 10_000),
+        mutation_size_decay=0.01 ** (1 / 10_000),
+        bias_decay=1.0,
     )
 
     algorithm.run(generations=20_000)
