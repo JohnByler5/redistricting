@@ -133,9 +133,36 @@ class DistrictMap:
         if save:
             self.env.fig.savefig(save_path)
 
-    def get_border(self):
+    def set(self, index, to_district):
+        from_district = self.assignments[index]
+        self.assignments[index] = to_district
+
+        sum_feature_differences = self.env.data[DISTRICT_SUM_FEATURES].iloc[index].values
+        self.districts.loc[from_district, DISTRICT_SUM_FEATURES] = self.districts[
+            DISTRICT_SUM_FEATURES].iloc[from_district].values - sum_feature_differences
+        self.districts.loc[to_district, DISTRICT_SUM_FEATURES] = self.districts[
+            DISTRICT_SUM_FEATURES].iloc[to_district].values + sum_feature_differences
+
+        geometries = self.env.data.geometry[index].reset_index()
+        self.districts.geometry.iloc[from_district] = self.districts.geometry.iloc[
+            from_district].reset_index().difference(geometries).values
+        self.districts.geometry.iloc[to_district] = self.districts.geometry.iloc[
+            to_district].reset_index().union(geometries).values
+
+    def get_border(self, district, reverse=False):
+        if reverse:
+            i1, i2 = self.env.neighbors.index, self.env.neighbors['index_right']
+        else:
+            i2, i1 = self.env.neighbors.index, self.env.neighbors['index_right']
+        return self.env.neighbors[(self.assignments[i1] == district) &
+                                  (self.assignments[i2] != district)]['index_right']
+
+    def get_borders(self):
         return self.env.neighbors[(self.assignments[self.env.neighbors.index] != self.assignments[
             self.env.neighbors['index_right']])]['index_right']
+
+    def mask(self, district):
+        return self.assignments == district
 
     def repeated(self, n):
         return DistrictMap(self.env, districts=pd.concat([self.districts for _ in range(n)], ignore_index=True))
@@ -178,21 +205,27 @@ class DistrictMap:
 
 
 class DistrictMapCollection:
-    def __init__(self, env, size=None, district_maps=None):
+    def __init__(self, env, max_size=None, district_maps=None):
         assert isinstance(env, RedistrictingEnv)
-        assert size is not None or district_maps is not None
+        assert max_size is not None or district_maps is not None
 
         if district_maps is None:
-            assert isinstance(size, int)
-            assert size > 0
-            self.size = size
-            self.district_maps = np.array([DistrictMap(env=env) for _ in range(size)])
+            assert isinstance(max_size, int)
+            assert max_size > 0
+            self.size = 0
+            self.max_size = max_size
+            self.district_maps = np.array([DistrictMap(env=env) for _ in range(max_size)])
         else:
             assert hasattr(district_maps, '__iter__') or hasattr(district_maps, '__getitem__')
             assert all(isinstance(x, DistrictMap) for x in district_maps)
             assert all(district_map.env is env for district_map in district_maps)
-            self.district_maps = np.array(district_maps)
             self.size = len(district_maps)
+            if max_size is None:
+                max_size = self.size
+            self.district_maps = np.array([DistrictMap(env=env) for _ in range(max_size)])
+            self.district_maps[:self.size] = np.array(district_maps)
+
+        self.env = env
 
     def __iter__(self):
         return iter(self.district_maps)
@@ -206,3 +239,11 @@ class DistrictMapCollection:
     def randomize(self):
         for i in range(self.size):
             self.district_maps[i].randomize()
+
+    def select(self, indices):
+        return DistrictMapCollection(self.env, max_size=self.max_size, district_maps=self.district_maps[indices])
+
+    def add(self, district_map):
+        assert self.size < self.max_size
+        self.district_maps[self.size] = district_map
+        self.size += 1

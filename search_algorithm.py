@@ -33,7 +33,7 @@ def infer_utm_crs(data):
     return f'EPSG:{hemisphere_prefix}{zone_number:02d}'
 
 
-class RedistrictingSearchAlgorithm:
+class RedistrictingSearchAlgorithm(Algorithm):
     def __init__(
             self,
             env,
@@ -43,47 +43,25 @@ class RedistrictingSearchAlgorithm:
             log_path='log.txt',
             weights=None,
     ):
-        self.env = env
-
-        self.verbose = verbose
-        self.start = start
-        self.save_every = save_every
-        self.log_path = log_path
-        open(self.log_path, 'w').close()
-
-        self.weights = {
-            'contiguity': 0,
-            'population_balance': 1,
-            'compactness': 1,
-            'win_margin': -1,
-            'efficiency_gap': -1,
-        }
-        for key in weights:
-            if key in self.weights:
-                self.weights[key] = weights[key]
+        super().__init__(env=env, start=start, verbose=verbose, save_every=save_every, log_path=log_path,
+                         weights=weights)
 
         self.district_map = DistrictMap(env)
         self.metrics = {key: None for key in self.weights}
         self.fitness = 0
         self.mutation_count = 0
-        self.generation_count = 0
 
     def run(self, generations=1):
-        if self.env.live_plot:
-            plt.ion()
+        with self:
+            self._log(f'Initiating map...')
+            self.district_map.randomize()
+            self._calculate_fitness()
 
-        self._log(f'Initiating map...')
-        self.district_map.randomize()
-        self._calculate_fitness()
+            self._log(f'Simulating for {generations:,} generations...')
+            for generation in range(generations + 1):
+                self._simulate_generation(last=generation == generations)
 
-        self._log(f'Simulating for {generations:,} generations...')
-        for generation in range(generations + 1):
-            self._simulate_generation(last=generation == generations)
-
-        self._log(f'Simulation complete!')
-        if self.env.live_plot:
-            plt.ioff()
-            plt.show()
+            self._log(f'Simulation complete!')
 
     def _log(self, message):
         message = f'{time(self.start)} - {message}'
@@ -103,9 +81,7 @@ class RedistrictingSearchAlgorithm:
         self._log(f'Generation: {self.generation_count:,} - Mutations: {self.mutation_count} - '
                   f'Fitness: {self.fitness:.4f} - {" | ".join(metric_str for metric_str in metric_strs)}')
 
-        self._log(f'Plotting...')
-        self._plot()
-
+        self._tick(self.district_map)
         if not last:
             self._log(f'Mutating...')
             self.mutate()
@@ -122,10 +98,9 @@ class RedistrictingSearchAlgorithm:
         self.district_map = district_map
         self._calculate_fitness()
         self.mutation_count += mutation_count
-        self.generation_count += 1
 
     def _mutation(self, district_map):
-        eligible = district_map.get_border()
+        eligible = district_map.get_borders()
         if eligible.empty:
             return None
 
@@ -149,13 +124,7 @@ class RedistrictingSearchAlgorithm:
         fitness_changes = self._calculate_groupby_fitness(large_district_map) - self.fitness
 
         i = np.argmax(fitness_changes)
-        from_i, to_i = from_district[i], to_district[i]
-        index = district_map.index[np.array([from_i, to_i])]
-        district_map.assignments[eligible.iloc[i]] = to_i
-        district_map.loc[index, DISTRICT_SUM_FEATURES] = large_district_map.districts[
-            DISTRICT_SUM_FEATURES].iloc[np.array([from_i, to_i]) + i * self.env.n_districts].values
-        district_map.geometry.loc[index] = large_district_map.districts.geometry[
-            np.array([from_i, to_i]) + i * self.env.n_districts].values
+        self.district_map.set(i, to_district[i])
 
         return fitness_changes[i]
 
@@ -168,11 +137,6 @@ class RedistrictingSearchAlgorithm:
 
     def calculate_fitness(self, district_map):
         return sum(getattr(district_map, f'calculate_{metric}') * self.weights[metric] for metric in self.metrics)
-
-    def _plot(self):
-        save = self.env.save_dir is not None
-        save_path = f'{self.env.save_dir}/{self.start.strftime("%Y-%m-%d-%H-%M-%S")}-{self.generation_count}'
-        self.district_map.plot(save=save, save_path=save_path)
 
 
 def main():

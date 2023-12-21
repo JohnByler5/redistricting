@@ -1,17 +1,12 @@
-import copy
 import datetime as dt
 import itertools
 
-import matplotlib.pyplot as plt
 import numpy as np
 from shapely.errors import GEOSException
 
+from algorithm import time, Algorithm, DictCollection, ParameterCollection, Parameter, RangeParameter
 from maps import count_polygons, DistrictMapCollection
 from redistricting_env import refresh_data, RedistrictingEnv
-
-
-def time(start):
-    return f'{dt.timedelta(seconds=round((dt.datetime.now() - start).total_seconds()))}'
 
 
 def union_from_difference(before, geometries, removals):
@@ -28,7 +23,7 @@ def calculate_p(weights):
     return p
 
 
-class RedistrictingGeneticAlgorithm:
+class RedistrictingGeneticAlgorithm(Algorithm):
     def __init__(
             self,
             env,
@@ -37,128 +32,62 @@ class RedistrictingGeneticAlgorithm:
             save_every=0,
             log_path='log.txt',
             weights=None,
-            population_size=100,
+            params=None,
+            population_size=2,
             selection_pct=0.5,
-            mutation_n_range=(0.0, 1.0),
-            mutation_layer_range=(1, 1),
-            mutation_size_range=(0.0, 1.00),
-            expansion_population_bias=0,
-            reduction_population_bias=0,
-            expansion_distance_bias=0,
-            reduction_distance_bias=0,
-            expansion_surrounding_bias=0,
-            reduction_surrounding_bias=0,
             starting_population_size=None,
-            mutation_n_growth=1.0,
-            mutation_size_decay=1.0,
-            bias_decay=1.0,
     ):
-        if selection_pct > 0.5:
-            raise ValueError('Parameter `selection_pct` must be less than or equal to `0.5`.')
+        assert selection_pct <= 0.5
 
-        self.env = env
+        if params is None:
+            params = ParameterCollection()
+        params.set_defaults(
+            expansion_population_bias=Parameter(0),
+            reduction_population_bias=Parameter(0),
+            expansion_distance_bias=Parameter(0),
+            reduction_distance_bias=Parameter(0),
+            expansion_surrounding_bias=Parameter(0),
+            reduction_surrounding_bias=Parameter(0),
+            mutation_size=RangeParameter(0.0, 1.0),
+            mutation_layers=RangeParameter(1, 1),
+            mutation_n=RangeParameter(0.0, 1.0),
+        )
 
-        self.verbose = verbose
-        self.start = start
-        self.save_every = save_every
-        self.log_path = log_path
-        open(self.log_path, 'w').close()
-
-        self.weights = {
-            'contiguity': 0,
-            'population_balance': 1,
-            'compactness': 1,
-            'win_margin': -1,
-            'efficiency_gap': -1,
-        }
-        for key in weights:
-            if key in self.weights:
-                self.weights[key] = weights[key]
+        super().__init__(env=env, start=start, log_path=log_path, verbose=verbose, save_every=save_every,
+                         weights=weights, params=params)
 
         self.population_size = population_size
         self.selection_pct = selection_pct
-        self.mutation_n_range = mutation_n_range
-        self.mutation_layer_range = mutation_layer_range
-        self.mutation_size_range = mutation_size_range
-        self.expansion_population_bias = expansion_population_bias
-        self.reduction_population_bias = reduction_population_bias
-        self.expansion_distance_bias = expansion_distance_bias
-        self.reduction_distance_bias = reduction_distance_bias
-        self.expansion_surrounding_bias = expansion_surrounding_bias
-        self.reduction_surrounding_bias = reduction_surrounding_bias
         if starting_population_size is None:
             starting_population_size = population_size
         self.starting_population_size = starting_population_size
-        self.mutation_n_growth = mutation_n_growth
-        self.mutation_size_decay = mutation_size_decay
-        self.bias_decay = bias_decay
 
-        self.population = DistrictMapCollection(env=self.env, size=self.starting_population_size)
-
-        self.generation = 0
-        self.current_mutation_n_range = mutation_n_range
-        self.current_mutation_size_range = mutation_size_range
-        self.current_expansion_population_bias = expansion_population_bias
-        self.current_reduction_population_bias = reduction_population_bias
-        self.current_expansion_distance_bias = expansion_distance_bias
-        self.current_reduction_distance_bias = reduction_distance_bias
-        self.current_expansion_surrounding_bias = expansion_surrounding_bias
-        self.current_reduction_surrounding_bias = reduction_surrounding_bias
+        self.population = DistrictMapCollection(env=self.env, max_size=self.starting_population_size)
 
     def run(self, generations=1):
-        if self.env.live_plot:
-            plt.ion()
+        with self:
+            self._log(f'Filling population...')
+            self.population.randomize()
 
-        self._log(f'Filling population...')
-        self.population.randomize()
+            self._log(f'Simulating for {generations:,} generations...')
+            for generation in range(generations + 1):
+                self.simulate_generation(last=generation == generations)
 
-        self._log(f'Simulating for {generations:,} generations...')
-        for generation in range(generations + 1):
-            self.simulate_generation(last=generation == generations)
-
-        self._log(f'Simulation complete!')
-        if self.env.live_plot:
-            plt.ioff()
-            plt.show()
-
-    def _log(self, message):
-        message = f'{time(self.start)} - {message}'
-        with open(self.log_path, 'a') as f:
-            f.write(f'{message}\n')
-        if self.verbose:
-            print(message)
+            self._log(f'Simulation complete!')
 
     def simulate_generation(self, last=False):
-        self._log(f'Generation: {self.generation:,} - Calculating fitness scores...')
+        self._log(f'Generation: {self.time_step_count:,} - Calculating fitness scores...')
         fitness_scores, metrics_list = self.calculate_fitness()
-        self._log(f'Generation: {self.generation:,} - Selecting best individuals...')
+        self._log(f'Generation: {self.time_step_count:,} - Selecting best individuals...')
         selected, selected_metrics = self.select(fitness_scores, metrics_list)
 
         metric_strs = [f'{" ".join(key.title().split("_"))}: {value}' for key, value in selected_metrics[0].items()]
-        self._log(f'Generation: {self.generation:,} - {" | ".join(metric_str for metric_str in metric_strs)}')
+        self._log(f'Generation: {self.time_step_count:,} - {" | ".join(metric_str for metric_str in metric_strs)}')
 
-        self._log(f'Generation: {self.generation:,} - Plotting best map...')
-        self._plot(selected[0])
-
+        self._tick(selected[0])
         if not last:
-            self._log(f'Generation: {self.generation:,} - Mutating for new generation...')
+            self._log(f'Generation: {self.time_step_count:,} - Mutating for new generation...')
             self.population = self._mutate(selected)
-            self.generation += 1
-
-            self.current_mutation_n_range = (
-                self.current_mutation_n_range[0] * self.mutation_n_growth,
-                self.current_mutation_n_range[1] * self.mutation_n_growth,
-            )
-            self.current_mutation_size_range = (
-                self.current_mutation_size_range[0] * self.mutation_size_decay,
-                self.current_mutation_size_range[1] * self.mutation_size_decay,
-            )
-            self.current_expansion_population_bias = self.current_expansion_population_bias * self.bias_decay
-            self.current_reduction_population_bias = self.current_reduction_population_bias * self.bias_decay
-            self.current_expansion_distance_bias = self.current_expansion_distance_bias * self.bias_decay
-            self.current_reduction_distance_bias = self.current_reduction_distance_bias * self.bias_decay
-            self.current_expansion_surrounding_bias = self.current_expansion_surrounding_bias * self.bias_decay
-            self.current_reduction_surrounding_bias = self.current_reduction_surrounding_bias * self.bias_decay
 
     def calculate_fitness(self):
         scores, metrics = {}, {}
@@ -174,156 +103,140 @@ class RedistrictingGeneticAlgorithm:
         return scores, metrics
 
     def select(self, fitness_scores, metrics):
-        selected, selected_metrics = [], []
         n = min(max(round(self.population_size * self.selection_pct), 1), self.population_size - 1)
-        for i in sorted(fitness_scores, key=lambda x: fitness_scores[x], reverse=True)[:n]:
-            selected.append(self.population[i])
-            selected_metrics.append(metrics[i])
-
+        indices = sorted(fitness_scores, key=lambda x: fitness_scores[x], reverse=True)[:n]
+        selected = self.population.select(indices)
+        selected_metrics = [metrics[i] for i in indices]
         return selected, selected_metrics
 
-    def _plot(self, district_map):
-        save = self.env.save_dir is not None and (self.save_every > 0 and self.generation % self.save_every == 0)
-        save_path = f'{self.env.save_dir}/{self.start.strftime("%Y-%m-%d-%H-%M-%S")}-{self.generation}'
-        district_map.plot(save=save, save_path=save_path)
-
     def _mutate(self, selected):
-        population = copy.deepcopy(selected)
-        for assignments in itertools.cycle(selected):
-            assignments = assignments.copy()
-            n_mutations = np.random.randint(
-                low=max(int(self.current_mutation_n_range[0] * self.env.n_districts), 1),
-                high=max(int(self.current_mutation_n_range[1] * self.env.n_districts), 1) + 1)
+        for district_map in itertools.cycle(selected):
+            district_map = district_map.copy()
+            n_mutations = self.params.mutation_n.randint(sacle=self.env.n_districts, min_value=1)
             districts = list(range(self.env.n_districts))
             np.random.shuffle(districts)
-            for i, x in enumerate(itertools.cycle(districts), 1):
-                self._mutation(assignments, x)
+            for i, district in enumerate(itertools.cycle(districts), 1):
+                self._mutation(district_map, district)
                 if i == n_mutations:
                     break
-            population.append(assignments)
-            if len(population) == self.population_size:
+            selected.add(district_map)
+            if selected.size == selected.max_size:
                 break
-        return population
+        return selected
 
-    def _mutation(self, assignments, district_idx):
+    def _mutation(self, district_map, district):
         expand_start, reduce_start = None, None
-        for _ in range(np.random.randint(low=max(self.mutation_layer_range[0], 1),
-                                         high=max(self.mutation_layer_range[1], 1) + 1)):
-            centroid = self.env.union_cache.calculate_union(assignments == district_idx).centroid
-            population_pct = self.env.data['population'][assignments == district_idx].sum() / self.env.ideal_population
-            p = calculate_p(np.array([population_pct ** self.current_expansion_population_bias, 1]))
+        for _ in range(self.params['mutation_layers'].randint(scale=1, min_value=1)):
+            mask = district_map.mask(district)
+            centroid = self.env.union_cache.calculate_union(mask).centroid
+            population_pct = self.env.data['population'][mask].sum() / self.env.ideal_population
+            p = calculate_p(np.array([population_pct ** self.params['expansion_population_bias'].value, 1]))
             if np.random.random() < p[0]:
-                expand_start = self._expansion(assignments, district_idx, centroid, expand_start)
+                expand_start = self._expansion(district_map, district, centroid, expand_start)
             else:
-                reduce_start = self._reduction(assignments, district_idx, centroid, reduce_start)
+                reduce_start = self._reduction(district_map, district, centroid, reduce_start)
 
-    def _expansion(self, assignments, district_idx, centroid, start=None):
-        eligible = self._get_border(assignments, district_idx)
+    def _expansion(self, district_map, district, centroid, start=None):
+        eligible = district_map.get_border(district, reverse=False)
         if eligible.empty:
             return start
-        weights = (self.env.data['population'].groupby(by=assignments).sum()[
-            assignments[eligible]] ** self.current_reduction_population_bias).values
-        weights *= (self.env.data.geometry[eligible].distance(centroid) ** self.current_expansion_distance_bias).values
-        neighbors = self.env.neighbors[assignments[self.env.neighbors['index_right']] == district_idx]['index_right']
+        weights = (self.env.data['population'].groupby(by=district_map.assignments).sum()[
+            district_map.assignments[eligible]] ** self.params.reduction_population_bias.value).values
+        weights *= (self.env.data.geometry[eligible].distance(centroid) **
+                    self.params.expansion_distance_bias.value).values
+        neighbors = self.env.neighbors[district_map.assignments[
+            self.env.neighbors['index_right']] == district]['index_right']
         neighbors = neighbors[eligible[eligible.isin(neighbors.index)]]
         neighbors = neighbors.groupby(by=neighbors.index).apply(len).reindex(eligible, fill_value=0) + 1
-        weights *= (neighbors ** self.current_expansion_surrounding_bias).values
-        selected, start = self._select_mutations(eligible, assignments, calculate_p(weights), centroid, start,
+        weights *= (neighbors ** self.params.expansion_surrounding_bias.value).values
+        selected, start = self._select_mutations(eligible, district_map, calculate_p(weights), centroid, start,
                                                  centroid_distance_weight=1)
         if selected is not None:
-            assignments[selected] = district_idx
+            district_map.set(selected, district)
         return start
 
-    def _reduction(self, assignments, district_idx, centroid, start=None):
-        eligible = self._get_border(assignments, district_idx, reverse=True)
+    def _reduction(self, district_map, district, centroid, start=None):
+        eligible = district_map.get_border(district, reverse=False)
         if eligible.empty:
             return start
-        weights = (self.env.data.geometry[eligible].distance(centroid) ** self.current_reduction_distance_bias).values
-        neighbors = self.env.neighbors['index_right'][assignments[self.env.neighbors['index_right']] == district_idx]
+        weights = (self.env.data.geometry[eligible].distance(centroid) **
+                   self.params.reduction_distance_bias.value).values
+        neighbors = self.env.neighbors['index_right'][district_map.assignments[
+            self.env.neighbors['index_right']] == district]
         neighbors = neighbors[eligible[eligible.isin(neighbors.index)]]
         neighbors = neighbors.groupby(by=neighbors.index).apply(len).reindex(eligible, fill_value=0) + 1
-        weights *= (neighbors.astype(np.float64) ** self.current_reduction_surrounding_bias).values
-        selected, start = self._select_mutations(eligible, assignments, calculate_p(weights), centroid, start,
+        weights *= (neighbors.astype(np.float64) ** self.params.reduction_surrounding_bias.value).values
+        selected, start = self._select_mutations(eligible, district_map, calculate_p(weights), centroid, start,
                                                  centroid_distance_weight=-1)
         if selected is None:
             return start
 
-        neighbors = self.env.neighbors['index_right'][assignments[self.env.neighbors['index_right']] != district_idx]
-        populations = self.env.data['population'].groupby(by=assignments).sum()
+        neighbors = self.env.neighbors['index_right'][
+            district_map.assignments[self.env.neighbors['index_right']] != district]
+        populations = self.env.data['population'].groupby(by=district_map.assignments).sum()
         centroids = {}
-        for i in np.unique(assignments[neighbors]):
-            mask = assignments == i
+        for i in np.unique(district_map.assignments[neighbors]):
+            mask = district_map.get_mask(i)
             geometries = self.env.data.geometry[mask]
             centroids[i] = self.env.union_cache.calculate_union(mask, geometries).centroid
         district_selections, selection = [], None
         for x in selected:
-            neighbor_districts = np.unique(assignments[neighbors[[x]]])
+            neighbor_districts = np.unique(district_map.assignments[neighbors[[x]]])
             if selection is None or selection not in neighbor_districts:
                 neighbor_centroids = np.array([centroids[i] for i in neighbor_districts])
                 weights = np.array([populations[i] for i in neighbor_districts]) ** \
-                    self.current_expansion_population_bias * (
-                    self.env.data.geometry[x].distance(neighbor_centroids) ** self.current_expansion_distance_bias)
+                    self.params.expansion_population_bias.value * (
+                    self.env.data.geometry[x].distance(neighbor_centroids) ** self.params.expansion_distance_bias.value)
                 p = calculate_p(weights)
                 selection = np.random.choice(neighbor_districts, p=p)
             district_selections.append(selection)
 
-        assignments[selected] = district_selections
+        district_map.set(selected, district_selections)
         return start
 
-    def _get_border(self, assignments, which, reverse=False):
-        if reverse:
-            i1, i2 = self.env.neighbors['index_right'], self.env.neighbors.index
-        else:
-            i1, i2 = self.env.neighbors.index, self.env.neighbors['index_right']
-        return self.env.neighbors[(assignments[i1] == which) &
-                                  (assignments[i2] != which)]['index_right'].drop_duplicates()
-
-    def _select_mutations(self, eligible, assignments, p, centroid, start=None, centroid_distance_weight=1):
+    def _select_mutations(self, eligible, district_map, p, centroid, start=None, centroid_distance_weight=1):
         previous_unions = {}
         if start is None:
-            start = self._choose_start(eligible, assignments, previous_unions, p)
+            start = self._choose_start(eligible, district_map, previous_unions, p)
             if start is None:
                 return None, None
         eligible = eligible.sort_values(key=lambda x: self.env.data.geometry[x].distance(
             self.env.data.geometry[start]) ** 2 + centroid_distance_weight * self.env.data.geometry[x].distance(
-            centroid) ** 2).values[:self._rand_mutation_size(len(eligible))]
+            centroid) ** 2).values[:self.params.mutation_size.randint(len(eligible))]
         selected, bounds = eligible, np.array([0, len(eligible)])
         while True:
             if bounds[0] + 1 >= bounds[1]:
                 break
             which_bound = 0
-            for i in np.unique(assignments[selected]):
-                if not self._verify_contiguity(previous_unions, i, assignments, selected[assignments[selected] == i]):
+            for i in np.unique(district_map.assignments[selected]):
+                removals = selected[district_map.assignments[selected] == i]
+                if not self._verify_contiguity(previous_unions, i, district_map.assignments, removals):
                     which_bound = 1
                     break
             bounds[which_bound] = len(selected)
             selected = eligible[:int(bounds.mean())]
         return selected, start
 
-    def _choose_start(self, eligible, assignments, previous_unions, p):
+    def _choose_start(self, eligible, district_map, previous_unions, p):
         attempts, max_attempts = 0, (p > 10e-2).sum()
         while attempts < max_attempts:
             i = np.random.choice(range(len(eligible)), p=p)
             x = eligible.iloc[i]
-            if self._verify_contiguity(previous_unions, assignments[x], assignments, [x]):
+            if self._verify_contiguity(previous_unions, district_map.assignments[x], district_map, [x]):
                 return x
             p[i] = 0
             p = calculate_p(p)
             attempts += 1
         return None
 
-    def _verify_contiguity(self, previous_unions, which, assignments, removals):
-        mask = assignments == which
+    def _verify_contiguity(self, previous_unions, which, district_map, removals):
+        mask = district_map.mask(which)
         geometries = self.env.data.geometry[mask]
         previous = previous_unions.get(which)
         if previous is None:
             previous = previous_unions[which] = self.env.union_cache.calculate_union(mask, geometries)
         new = union_from_difference(previous, geometries, removals)
         return count_polygons(new) <= count_polygons(previous)
-
-    def _rand_mutation_size(self, start_size):
-        return np.random.randint(low=max(int(self.current_mutation_size_range[0] * start_size), 1),
-                                 high=max(int(self.current_mutation_size_range[1] * start_size), 1) + 1)
 
 
 def main():
@@ -341,28 +254,27 @@ def main():
         verbose=True,
         save_every=1_000,
         log_path='log.txt',
-        weights={
-            'contiguity': 0,
-            'population_balance': 10,
-            'compactness': 2,
-            'win_margin': -2,
-            'efficiency_gap': -1,
-        },
+        weights=DictCollection(
+            contiguity=0,
+            population_balance=10,
+            compactness=2,
+            win_margin=-2,
+            efficiency_gap=-1,
+        ),
+        params=ParameterCollection(
+            expansion_population_bias=Parameter(-10, exp_factor=1),
+            reduction_population_bias=Parameter(10, exp_factor=1),
+            expansion_distance_bias=Parameter(-10, exp_factor=1),
+            reduction_distance_bias=Parameter(10, exp_factor=1),
+            expansion_surrounding_bias=Parameter(2, exp_factor=1),
+            reduction_surrounding_bias=Parameter(-2, exp_factor=1),
+            mutation_size=RangeParameter(1.0, 1.0, exp_factor=0.01 ** (1 / 20_000)),
+            mutation_layers=RangeParameter(20, 20, exp_factor=0.1 ** (1 / 20_000), min_value=1),
+            mutation_n=RangeParameter(0.0, 1 / 17, exp_factor=34 ** (1 / 20_000), max_value=34),
+        ),
         population_size=2,
         selection_pct=0.5,
-        mutation_n_range=(0.0, 1 / 17),
-        mutation_layer_range=(1, 10),
-        mutation_size_range=(0.0, 1.0),
-        expansion_population_bias=-10,
-        reduction_population_bias=10,
-        expansion_distance_bias=-10,
-        reduction_distance_bias=10,
-        expansion_surrounding_bias=2,
-        reduction_surrounding_bias=-2,
-        starting_population_size=1_000,
-        mutation_n_growth=1 ** (1 / 20_000),
-        mutation_size_decay=1 ** (1 / 10_000),  # TODO: Make decay and growth auto detected as necessary based
-        bias_decay=1.0,
+        starting_population_size=2,
     )
 
     algorithm.run(generations=20_000)
