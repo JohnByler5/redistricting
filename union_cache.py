@@ -64,9 +64,10 @@ class UnionCache:
 
         scores = (intersection_area * 2 - u_area) / b_area
         scores[u_area == 0] = 0
-        return scores.value
+        return scores.values
 
     def _add(self, mask, union):
-        self._cache.loc[self._index, ['mask', 'geometry']] = [mask, union]
+        self._cache.at[self._index, 'mask'] = mask
+        self._cache.at[self._index, 'geometry'] = union
         self._index = (self._index + 1) % self.size
         self._count = min(self._count + 1, self.size)

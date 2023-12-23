@@ -5,7 +5,7 @@ import numpy as np
 from shapely.geometry import Polygon, MultiPolygon, LineString, MultiLineString
 from shapely.geometry.collection import GeometryCollection
 
-from maps import DistrictMap, DISTRICT_SUM_FEATURES
+from maps import DistrictMap, DISTRICT_FEATURES
 from redistricting_env import refresh_data, RedistrictingEnv
 
 
@@ -73,7 +73,7 @@ class RedistrictingSearchAlgorithm(Algorithm):
     def _calculate_fitness(self):
         self.fitness = 0
         for metric in self.metrics:
-            self.metrics[metric] = getattr(self.district_map, f'calculate_{metric}')
+            self.metrics[metric] = getattr(self.district_map, f'calculate_{metric}')()
             self.fitness += self.metrics[metric] * self.weights[metric]
 
     def _simulate_generation(self, last=False):
@@ -109,17 +109,17 @@ class RedistrictingSearchAlgorithm(Algorithm):
         large_district_map = district_map.repeated(len(eligible))
         range_array = np.array(range(len(eligible))) * self.env.n_districts
 
-        sum_feature_differences = self.env.data[DISTRICT_SUM_FEATURES].iloc[eligible].values
-        large_district_map.districts.loc[range_array + from_district, DISTRICT_SUM_FEATURES] = district_map[
-            DISTRICT_SUM_FEATURES].iloc[from_district].values - sum_feature_differences
-        large_district_map.districts.loc[range_array + to_district, DISTRICT_SUM_FEATURES] = district_map[
-            DISTRICT_SUM_FEATURES].iloc[to_district].values + sum_feature_differences
+        sum_feature_differences = self.env.data[DISTRICT_FEATURES].iloc[eligible].values
+        large_district_map.districts.loc[range_array + from_district, DISTRICT_FEATURES] = district_map[
+            DISTRICT_FEATURES].iloc[from_district].values - sum_feature_differences
+        large_district_map.districts.loc[range_array + to_district, DISTRICT_FEATURES] = district_map[
+            DISTRICT_FEATURES].iloc[to_district].values + sum_feature_differences
 
-        geometries = self.env.data.geometry[eligible].reset_index()
+        geometries = self.env.data.geometry[eligible].reset_index(drop=True)
         large_district_map.districts.geometry.iloc[range_array + from_district] = district_map.geometry.iloc[
-            from_district].reset_index().difference(geometries).values
+            from_district].reset_index(drop=True).difference(geometries).values
         large_district_map.districts.geometry.iloc[range_array + to_district] = district_map.geometry.iloc[
-            to_district].reset_index().union(geometries).values
+            to_district].reset_index(drop=True).union(geometries).values
 
         fitness_changes = self._calculate_groupby_fitness(large_district_map) - self.fitness
 
@@ -136,7 +136,7 @@ class RedistrictingSearchAlgorithm(Algorithm):
         return fitness
 
     def calculate_fitness(self, district_map):
-        return sum(getattr(district_map, f'calculate_{metric}') * self.weights[metric] for metric in self.metrics)
+        return sum(getattr(district_map, f'calculate_{metric}')() * self.weights[metric] for metric in self.metrics)
 
 
 def main():

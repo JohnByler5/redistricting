@@ -1,19 +1,24 @@
 import datetime as dt
+from numbers import Number
 
 import matplotlib.pyplot as plt
 import numpy as np
 
 
-def time(start):
+def is_number(x):
+    return isinstance(x, (Number, np.number))
+
+
+def since_start(start):
     return f'{dt.timedelta(seconds=round((dt.datetime.now() - start).total_seconds()))}'
 
 
 class Parameter:
     def __init__(self, start_value, exp_factor=1, min_value=-np.inf, max_value=np.inf):
-        assert isinstance(start_value, np.number)
-        assert isinstance(exp_factor, np.number) and exp_factor > 0
-        assert isinstance(min_value, np.number) and min_value <= start_value
-        assert isinstance(max_value, np.number) and max_value >= start_value
+        assert is_number(start_value)
+        assert is_number(exp_factor) and exp_factor > 0
+        assert is_number(min_value) and min_value <= start_value
+        assert is_number(max_value) and max_value >= start_value
         self.start_value = self.value = start_value
         self.exp_factor = exp_factor
         self.min_value = min_value
@@ -48,10 +53,13 @@ class RangeParameter:
         self.high.tick()
 
     def random(self):
-        return np.random.random() * (self.high - self.low) + self.low
+        return np.random.random() * (self.high.value - self.low.value) + self.low.value
 
     def randint(self, scale=1, min_value=1):
-        return np.random.randint(max(int(self.low * scale), min_value), max(int(self.high * scale), min_value) + 1)
+        return np.random.randint(
+            max(int(self.low.value * scale), min_value),
+            max(int(self.high.value * scale), min_value) + 1,
+        )
 
 
 class DictCollection(dict):
@@ -114,7 +122,7 @@ class Algorithm:
         self.time_step_count = 0
 
     def _log(self, message):
-        message = f'{time(self.start)} - {message}'
+        message = f'{since_start(self.start)} - {message}'
         with open(self.log_path, 'a') as f:
             f.write(f'{message}\n')
         if self.verbose:
@@ -124,7 +132,7 @@ class Algorithm:
         if self.env.live_plot:
             plt.ion()
 
-    def __exit__(self):
+    def __exit__(self, exc_type, exc_val, exc_tb):
         if self.env.live_plot:
             plt.ioff()
             plt.show()
