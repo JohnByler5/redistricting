@@ -4,7 +4,7 @@ import itertools
 import numpy as np
 from shapely.errors import GEOSException
 
-from algorithm import time, Algorithm, DictCollection, ParameterCollection, Parameter, RangeParameter
+from algorithm import since_start, Algorithm, DictCollection, ParameterCollection, Parameter, RangeParameter
 from maps import count_polygons, DistrictMapCollection
 from redistricting_env import refresh_data, RedistrictingEnv
 
@@ -16,10 +16,46 @@ def union_from_difference(before, geometries, removals):
         return geometries.unary_union
 
 
-def calculate_p(weights):
+def apply_bias(a, bias, min_p=0.0):
+    assert -1 <= bias <= 1
+    assert 0 <= min_p <= 1
+
+    if len(a) == 0:
+        return a
+    if len(a) == 1:
+        return np.array([1])
+    if bias == 0.0:
+        return np.full(shape=a.shape, fill_value=1.0)
+
+    epsilon = 1e-10
+    exp = (1 / (1 - np.abs(bias) * (1 - epsilon * 2) - epsilon)) - 1
+
+    a_min, a_max = a.min(), a.max()
+    if a_max - a_min == 0:
+        return np.full(shape=a.shape, fill_value=1.0)
+    p = (a - a_min) / (a_max - a_min)
+
+    if bias < 0:
+        p = (1 - p)
+    p **= exp
+    p /= p.sum()
+
+    min_p = min_p / (len(a) - 1)
+    p = p * (1 - min_p * len(a)) + min_p
+
+    return p
+
+
+def calculate_weights(*arrays_and_biases, min_p=0.0):
+    return np.prod([apply_bias(a, bias, min_p=min_p) for a, bias in arrays_and_biases], axis=0)
+
+
+def normalize(weights):
     p = np.nan_to_num(weights / weights.sum())
-    if p.sum() != 1:
-        p[np.argmax(p)] += 1 - p.sum()
+    if p.sum() < 1:
+        p[p.argmin()] += 1 - p.sum()
+    elif p.sum() > 1:
+        p[p.argmax()] -= p.sum() - 1
     return p
 
 
@@ -31,13 +67,19 @@ class RedistrictingGeneticAlgorithm(Algorithm):
             verbose=1,
             save_every=0,
             log_path='log.txt',
+            population_size=2,
+            starting_population_size=None,
+            selection_pct=0.5,
             weights=None,
             params=None,
-            population_size=2,
-            selection_pct=0.5,
-            starting_population_size=None,
+            min_p=0.0,
     ):
+        assert verbose >= 0
+        assert save_every >= 0
+        assert population_size >= 2
+        assert starting_population_size is None or starting_population_size >= population_size
         assert selection_pct <= 0.5
+        assert 0 <= min_p <= 1
 
         if params is None:
             params = ParameterCollection()
@@ -63,6 +105,8 @@ class RedistrictingGeneticAlgorithm(Algorithm):
         self.starting_population_size = starting_population_size
 
         self.population = DistrictMapCollection(env=self.env, max_size=self.starting_population_size)
+
+        self.min_p = min_p
 
     def run(self, generations=1):
         with self:
@@ -95,7 +139,7 @@ class RedistrictingGeneticAlgorithm(Algorithm):
             scores[i] = 0
             metrics[i] = {'fitness': '0'}
             for metric, weight in self.weights.items():
-                result = getattr(district_map, f'calculate_{metric}')
+                result = getattr(district_map, f'calculate_{metric}')()
                 scores[i] += result * weight
                 metrics[i][metric] = f'{result:.4%}'
             metrics[i]['fitness'] = f'{scores[i]:.4f}'
@@ -105,23 +149,25 @@ class RedistrictingGeneticAlgorithm(Algorithm):
     def select(self, fitness_scores, metrics):
         n = min(max(round(self.population_size * self.selection_pct), 1), self.population_size - 1)
         indices = sorted(fitness_scores, key=lambda x: fitness_scores[x], reverse=True)[:n]
-        selected = self.population.select(indices)
+        selected = self.population.select(indices, new_max_size=self.population_size)
         selected_metrics = [metrics[i] for i in indices]
         return selected, selected_metrics
 
     def _mutate(self, selected):
+        to_add = DistrictMapCollection(env=self.env, max_size=selected.empty_space())
         for district_map in itertools.cycle(selected):
             district_map = district_map.copy()
-            n_mutations = self.params.mutation_n.randint(sacle=self.env.n_districts, min_value=1)
+            n_mutations = self.params.mutation_n.randint(scale=self.env.n_districts, min_value=1)
             districts = list(range(self.env.n_districts))
             np.random.shuffle(districts)
             for i, district in enumerate(itertools.cycle(districts), 1):
                 self._mutation(district_map, district)
                 if i == n_mutations:
                     break
-            selected.add(district_map)
-            if selected.size == selected.max_size:
+            to_add.add(district_map)
+            if to_add.is_full():
                 break
+        selected.add(to_add)
         return selected
 
     def _mutation(self, district_map, district):
@@ -130,8 +176,9 @@ class RedistrictingGeneticAlgorithm(Algorithm):
             mask = district_map.mask(district)
             centroid = self.env.union_cache.calculate_union(mask).centroid
             population_pct = self.env.data['population'][mask].sum() / self.env.ideal_population
-            p = calculate_p(np.array([population_pct ** self.params['expansion_population_bias'].value, 1]))
-            if np.random.random() < p[0]:
+            p = population_pct ** self.params['expansion_population_bias'].value
+            p /= (p + 1)
+            if np.random.random() < p:
                 expand_start = self._expansion(district_map, district, centroid, expand_start)
             else:
                 reduce_start = self._reduction(district_map, district, centroid, reduce_start)
@@ -140,33 +187,42 @@ class RedistrictingGeneticAlgorithm(Algorithm):
         eligible = district_map.get_border(district, reverse=False)
         if eligible.empty:
             return start
-        weights = (self.env.data['population'].groupby(by=district_map.assignments).sum()[
-            district_map.assignments[eligible]] ** self.params.reduction_population_bias.value).values
-        weights *= (self.env.data.geometry[eligible].distance(centroid) **
-                    self.params.expansion_distance_bias.value).values
+        populations = self.env.data['population'].groupby(by=district_map.assignments).sum()[
+            district_map.assignments[eligible]].values
+        distances = self.env.data.geometry[eligible].distance(centroid).values
         neighbors = self.env.neighbors[district_map.assignments[
             self.env.neighbors['index_right']] == district]['index_right']
         neighbors = neighbors[eligible[eligible.isin(neighbors.index)]]
-        neighbors = neighbors.groupby(by=neighbors.index).apply(len).reindex(eligible, fill_value=0) + 1
-        weights *= (neighbors ** self.params.expansion_surrounding_bias.value).values
-        selected, start = self._select_mutations(eligible, district_map, calculate_p(weights), centroid, start,
+        neighbors = neighbors.groupby(by=neighbors.index).apply(len).reindex(
+            eligible, fill_value=0).values.astype(np.float64)
+        weights = calculate_weights(
+            (populations, self.params.reduction_population_bias.value),
+            (distances, self.params.expansion_distance_bias.value),
+            (neighbors, self.params.expansion_surrounding_bias.value),
+            min_p=self.min_p,
+        )
+        selected, start = self._select_mutations(eligible, district_map, weights, centroid, start,
                                                  centroid_distance_weight=1)
         if selected is not None:
             district_map.set(selected, district)
         return start
 
     def _reduction(self, district_map, district, centroid, start=None):
-        eligible = district_map.get_border(district, reverse=False)
+        eligible = district_map.get_border(district, reverse=True)
         if eligible.empty:
             return start
-        weights = (self.env.data.geometry[eligible].distance(centroid) **
-                   self.params.reduction_distance_bias.value).values
+        populations = self.env.data.geometry[eligible].distance(centroid).values
         neighbors = self.env.neighbors['index_right'][district_map.assignments[
             self.env.neighbors['index_right']] == district]
         neighbors = neighbors[eligible[eligible.isin(neighbors.index)]]
-        neighbors = neighbors.groupby(by=neighbors.index).apply(len).reindex(eligible, fill_value=0) + 1
-        weights *= (neighbors.astype(np.float64) ** self.params.reduction_surrounding_bias.value).values
-        selected, start = self._select_mutations(eligible, district_map, calculate_p(weights), centroid, start,
+        neighbors = neighbors.groupby(by=neighbors.index).apply(len).reindex(
+            eligible, fill_value=0).values.astype(np.float64)
+        weights = calculate_weights(
+            (populations, self.params.reduction_distance_bias.value),
+            (neighbors, self.params.reduction_surrounding_bias.value),
+            min_p=self.min_p,
+        )
+        selected, start = self._select_mutations(eligible, district_map, weights, centroid, start,
                                                  centroid_distance_weight=-1)
         if selected is None:
             return start
@@ -176,28 +232,31 @@ class RedistrictingGeneticAlgorithm(Algorithm):
         populations = self.env.data['population'].groupby(by=district_map.assignments).sum()
         centroids = {}
         for i in np.unique(district_map.assignments[neighbors]):
-            mask = district_map.get_mask(i)
+            mask = district_map.mask(i)
             geometries = self.env.data.geometry[mask]
             centroids[i] = self.env.union_cache.calculate_union(mask, geometries).centroid
+
         district_selections, selection = [], None
         for x in selected:
             neighbor_districts = np.unique(district_map.assignments[neighbors[[x]]])
             if selection is None or selection not in neighbor_districts:
                 neighbor_centroids = np.array([centroids[i] for i in neighbor_districts])
-                weights = np.array([populations[i] for i in neighbor_districts]) ** \
-                    self.params.expansion_population_bias.value * (
-                    self.env.data.geometry[x].distance(neighbor_centroids) ** self.params.expansion_distance_bias.value)
-                p = calculate_p(weights)
-                selection = np.random.choice(neighbor_districts, p=p)
+                populations_ = np.array([populations[i] for i in neighbor_districts])
+                distances = self.env.data.geometry[x].distance(neighbor_centroids)
+                weights = calculate_weights(
+                    (populations_, self.params.expansion_population_bias.value),
+                    (distances, self.params.expansion_distance_bias.value),
+                    min_p=self.min_p,
+                )
+                selection = np.random.choice(neighbor_districts, p=normalize(weights))
             district_selections.append(selection)
 
         district_map.set(selected, district_selections)
         return start
 
-    def _select_mutations(self, eligible, district_map, p, centroid, start=None, centroid_distance_weight=1):
-        previous_unions = {}
+    def _select_mutations(self, eligible, district_map, weights, centroid, start=None, centroid_distance_weight=1):
         if start is None:
-            start = self._choose_start(eligible, district_map, previous_unions, p)
+            start = self._choose_start(eligible, district_map, weights)
             if start is None:
                 return None, None
         eligible = eligible.sort_values(key=lambda x: self.env.data.geometry[x].distance(
@@ -210,33 +269,30 @@ class RedistrictingGeneticAlgorithm(Algorithm):
             which_bound = 0
             for i in np.unique(district_map.assignments[selected]):
                 removals = selected[district_map.assignments[selected] == i]
-                if not self._verify_contiguity(previous_unions, i, district_map.assignments, removals):
+                if not self._verify_contiguity(i, district_map, removals):
                     which_bound = 1
                     break
             bounds[which_bound] = len(selected)
             selected = eligible[:int(bounds.mean())]
         return selected, start
 
-    def _choose_start(self, eligible, district_map, previous_unions, p):
-        attempts, max_attempts = 0, (p > 10e-2).sum()
+    def _choose_start(self, eligible, district_map, weights):
+        attempts, max_attempts = 0, (weights > 0).sum()
         while attempts < max_attempts:
-            i = np.random.choice(range(len(eligible)), p=p)
+            i = np.random.choice(range(len(eligible)), p=normalize(weights))
             x = eligible.iloc[i]
-            if self._verify_contiguity(previous_unions, district_map.assignments[x], district_map, [x]):
+            if self._verify_contiguity(district_map.assignments[x], district_map, [x]):
                 return x
-            p[i] = 0
-            p = calculate_p(p)
+            weights[i] = 0
             attempts += 1
         return None
 
-    def _verify_contiguity(self, previous_unions, which, district_map, removals):
-        mask = district_map.mask(which)
-        geometries = self.env.data.geometry[mask]
-        previous = previous_unions.get(which)
-        if previous is None:
-            previous = previous_unions[which] = self.env.union_cache.calculate_union(mask, geometries)
+    def _verify_contiguity(self, which, district_map, removals):
+        previous = district_map.districts.geometry.loc[which]
+        geometries = self.env.data.geometry[district_map.mask(which)]
         new = union_from_difference(previous, geometries, removals)
-        return count_polygons(new) <= count_polygons(previous)
+        a = count_polygons(new) <= count_polygons(previous)
+        return a
 
 
 def main():
@@ -244,37 +300,38 @@ def main():
 
     refresh = False
     if refresh:
-        print(f'{time(start)} - Refreshing data...')
+        print(f'{since_start(start)} - Refreshing data...')
         refresh_data()
 
-    print(f'{time(start)} - Initiating algorithm...')
+    print(f'{since_start(start)} - Initiating algorithm...')
     algorithm = RedistrictingGeneticAlgorithm(
         env=RedistrictingEnv('data/pa/simplified.parquet', n_districts=17, live_plot=False, save_dir='maps'),
         start=start,
         verbose=True,
         save_every=1_000,
         log_path='log.txt',
+        population_size=2,
+        selection_pct=0.5,
+        starting_population_size=1_000,
         weights=DictCollection(
             contiguity=0,
-            population_balance=10,
-            compactness=2,
-            win_margin=-2,
+            population_balance=5,
+            compactness=1,
+            win_margin=-1,
             efficiency_gap=-1,
         ),
         params=ParameterCollection(
-            expansion_population_bias=Parameter(-10, exp_factor=1),
-            reduction_population_bias=Parameter(10, exp_factor=1),
-            expansion_distance_bias=Parameter(-10, exp_factor=1),
-            reduction_distance_bias=Parameter(10, exp_factor=1),
-            expansion_surrounding_bias=Parameter(2, exp_factor=1),
-            reduction_surrounding_bias=Parameter(-2, exp_factor=1),
+            expansion_population_bias=Parameter(-0.5, exp_factor=1),
+            reduction_population_bias=Parameter(0.5, exp_factor=1),
+            expansion_distance_bias=Parameter(-0.5, exp_factor=1),
+            reduction_distance_bias=Parameter(0.5, exp_factor=1),
+            expansion_surrounding_bias=Parameter(0.5, exp_factor=1),
+            reduction_surrounding_bias=Parameter(-0.5, exp_factor=1),
             mutation_size=RangeParameter(1.0, 1.0, exp_factor=0.01 ** (1 / 20_000)),
             mutation_layers=RangeParameter(20, 20, exp_factor=0.1 ** (1 / 20_000), min_value=1),
             mutation_n=RangeParameter(0.0, 1 / 17, exp_factor=34 ** (1 / 20_000), max_value=34),
         ),
-        population_size=2,
-        selection_pct=0.5,
-        starting_population_size=2,
+        min_p=0.1,
     )
 
     algorithm.run(generations=20_000)

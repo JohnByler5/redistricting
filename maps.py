@@ -6,11 +6,12 @@ import numpy as np
 import pandas as pd
 from shapely.geometry import Polygon, MultiPolygon, LineString, MultiLineString
 from shapely.geometry.collection import GeometryCollection
+from shapely.ops import unary_union
 
 from redistricting_env import RedistrictingEnv
 
 UNALLOCATED = -1
-DISTRICT_SUM_FEATURES = pd.Index(['population', 'republican', 'democrat'])
+DISTRICT_FEATURES = pd.Index(['population', 'republican', 'democrat'])
 METRICS = ['contiguity', 'population_balance', 'compactness', 'win_margin', 'efficiency_gap']
 
 
@@ -26,6 +27,7 @@ def count_polygons(geometry):
 class DistrictMap:
     def __init__(self, env, assignments=None, districts=None):
         assert isinstance(env, RedistrictingEnv)
+        self.env = env
 
         if assignments is None:
             self.assignments = np.full(env.n_blocks, UNALLOCATED)
@@ -36,26 +38,31 @@ class DistrictMap:
             assert len(self.assignments) == env.n_blocks
 
         if districts is None:
-            self.districts = gpd.GeoDataFrame(data=np.zeros((env.n_districts, len(DISTRICT_SUM_FEATURES))),
-                                              geometry=np.full(env.n_districts, Polygon(np.zeros((3, 2)))),
-                                              crs=env.data.crs)
+            self.districts = gpd.GeoDataFrame(
+                data=np.zeros((env.n_districts, len(DISTRICT_FEATURES))),
+                columns=DISTRICT_FEATURES,
+                geometry=np.full(env.n_districts, Polygon(np.zeros((3, 2)))),
+                crs=env.data.crs
+            )
             self.construct_districts()
         else:
             assert isinstance(districts, gpd.GeoDataFrame)
-            assert DISTRICT_SUM_FEATURES.isin(districts.columns).all()
+            assert DISTRICT_FEATURES.isin(districts.columns).all()
             assert (len(districts) % env.n_districts) == 0
             self.districts = districts
-
-        self.env = env
 
     def copy(self):
         return DistrictMap(env=self.env, assignments=self.assignments.copy(), districts=copy.deepcopy(self.districts))
 
     def construct_districts(self):
-        districts = self.env.data.groupby(by=self.assignments)
-        self.districts[DISTRICT_SUM_FEATURES] = districts[DISTRICT_SUM_FEATURES].sum()
-        self.districts.geometry = districts.index.apply(
-            lambda x: self.env.union_cache.calculate_union(mask=self.assignments == x, geometries=districts[x])
+        allocated = self.assignments != UNALLOCATED
+        if not allocated.sum():
+            return
+        districts = self.env.data[allocated].groupby(by=self.assignments[allocated])
+        groups = pd.Index(districts.groups.keys())
+        self.districts.loc[groups, DISTRICT_FEATURES] = districts[DISTRICT_FEATURES].sum()
+        self.districts.geometry.loc[groups] = districts.apply(
+            lambda group: self.env.union_cache.calculate_union(mask=self.assignments == group.name, geometries=group)
         )
 
     def calculate_contiguity(self):
@@ -134,28 +141,32 @@ class DistrictMap:
             self.env.fig.savefig(save_path)
 
     def set(self, index, to_district):
+        if not hasattr(index, '__iter__'):
+            index = np.array([index])
+        if not hasattr(to_district, '__iter__'):
+            to_district = np.full(len(index), to_district)
+
         from_district = self.assignments[index]
         self.assignments[index] = to_district
 
-        sum_feature_differences = self.env.data[DISTRICT_SUM_FEATURES].iloc[index].values
-        self.districts.loc[from_district, DISTRICT_SUM_FEATURES] = self.districts[
-            DISTRICT_SUM_FEATURES].iloc[from_district].values - sum_feature_differences
-        self.districts.loc[to_district, DISTRICT_SUM_FEATURES] = self.districts[
-            DISTRICT_SUM_FEATURES].iloc[to_district].values + sum_feature_differences
+        geometries = self.env.data.geometry[index]
+        for assignments, weight, f in ((from_district, -1, 'difference'), (to_district, 1, 'union')):
+            differences = self.env.data[DISTRICT_FEATURES].iloc[index].groupby(assignments).sum()
+            unique = np.unique(assignments)
+            self.districts.loc[unique, DISTRICT_FEATURES] += differences * weight
 
-        geometries = self.env.data.geometry[index].reset_index()
-        self.districts.geometry.iloc[from_district] = self.districts.geometry.iloc[
-            from_district].reset_index().difference(geometries).values
-        self.districts.geometry.iloc[to_district] = self.districts.geometry.iloc[
-            to_district].reset_index().union(geometries).values
+            f = getattr(self.districts.geometry.loc[unique].reset_index(drop=True), f)
+            unions = geometries.groupby(assignments).apply(unary_union).reset_index(drop=True)
+            unions.crs = self.env.data.crs
+            self.districts.geometry.loc[unique] = f(unions).values
 
     def get_border(self, district, reverse=False):
         if reverse:
-            i1, i2 = self.env.neighbors.index, self.env.neighbors['index_right']
-        else:
             i2, i1 = self.env.neighbors.index, self.env.neighbors['index_right']
-        return self.env.neighbors[(self.assignments[i1] == district) &
-                                  (self.assignments[i2] != district)]['index_right']
+        else:
+            i1, i2 = self.env.neighbors.index, self.env.neighbors['index_right']
+        return pd.Series(self.env.neighbors[(self.assignments[i1] == district) &
+                                            (self.assignments[i2] != district)]['index_right'].unique())
 
     def get_borders(self):
         return self.env.neighbors[(self.assignments[self.env.neighbors.index] != self.assignments[
@@ -222,13 +233,17 @@ class DistrictMapCollection:
             self.size = len(district_maps)
             if max_size is None:
                 max_size = self.size
+            self.max_size = max_size
             self.district_maps = np.array([DistrictMap(env=env) for _ in range(max_size)])
             self.district_maps[:self.size] = np.array(district_maps)
 
         self.env = env
 
+    def __len__(self):
+        return self.size
+
     def __iter__(self):
-        return iter(self.district_maps)
+        return iter(self.district_maps[:self.size])
 
     def __getitem__(self, item):
         return self.district_maps[item]
@@ -236,14 +251,33 @@ class DistrictMapCollection:
     def __setitem__(self, key, value):
         self.district_maps[key] = value
 
+    def is_full(self):
+        assert self.size <= self.max_size
+        return self.size == self.max_size
+
+    def empty_space(self):
+        return self.max_size - self.size
+
     def randomize(self):
-        for i in range(self.size):
+        for i in range(self.max_size):
             self.district_maps[i].randomize()
+        self.size = self.max_size
 
-    def select(self, indices):
-        return DistrictMapCollection(self.env, max_size=self.max_size, district_maps=self.district_maps[indices])
+    def select(self, indices, new_max_size=None):
+        if new_max_size is None:
+            new_max_size = self.max_size
+        return DistrictMapCollection(self.env, max_size=new_max_size, district_maps=self.district_maps[indices])
 
-    def add(self, district_map):
-        assert self.size < self.max_size
-        self.district_maps[self.size] = district_map
-        self.size += 1
+    def add(self, other):
+        assert isinstance(other, (DistrictMap, DistrictMapCollection))
+        assert self.env is other.env
+
+        if isinstance(other, DistrictMap):
+            new_size = self.size + 1
+        else:
+            new_size = self.size + other.size
+            other = other.district_maps[:other.size]
+        assert new_size <= self.max_size
+
+        self.district_maps[self.size:new_size] = other
+        self.size = new_size
