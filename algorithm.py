@@ -121,11 +121,13 @@ class Algorithm:
         self.params = params
         self.time_step_count = 0
 
-    def _log(self, message):
+        self._start_map = None
+
+    def log(self, message, verbose=None):
         message = f'{since_start(self.start)} - {message}'
         with open(self.log_path, 'a') as f:
             f.write(f'{message}\n')
-        if self.verbose:
+        if verbose is not None and verbose <= self.verbose:
             print(message)
 
     def __enter__(self):
@@ -137,12 +139,21 @@ class Algorithm:
             plt.ioff()
             plt.show()
 
+    def set_start_map(self, map_):
+        map_.env = self.env
+        self._start_map = map_
+
+    def run(self, generations) -> [int]: ...
+
     def _tick(self, district_map):
         self._plot(district_map)
         self.params.tick()
         self.time_step_count += 1
 
     def _plot(self, district_map):
-        save = self.env.save_dir is not None and ((self.time_step_count % self.save_every) == 0)
-        save_path = f'{self.env.save_dir}/{self.start.strftime("%Y-%m-%d-%H-%M-%S")}-{self.time_step_count}'
-        district_map.plot(save=save, save_path=save_path)
+        if self.env.save_data_dir is not None and ((self.time_step_count % self.save_every) == 0):
+            district_map.save(path=f'{self.env.save_data_dir}/{self.start.strftime("%Y-%m-%d-%H-%M-%S")}.pkl')
+
+        save_img = self.env.save_img_dir is not None and ((self.time_step_count % self.save_every) == 0)
+        save_path = f'{self.env.save_img_dir}/{self.start.strftime("%Y-%m-%d-%H-%M-%S")}-{self.time_step_count}'
+        district_map.plot(save=save_img, save_path=save_path)

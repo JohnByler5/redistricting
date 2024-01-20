@@ -1,9 +1,11 @@
 import copy
+import pickle
 
 import geopandas as gpd
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
+import shapely.errors
 from shapely.geometry import Polygon, MultiPolygon, LineString, MultiLineString
 from shapely.geometry.collection import GeometryCollection
 from shapely.ops import unary_union
@@ -53,6 +55,15 @@ class DistrictMap:
 
     def copy(self):
         return DistrictMap(env=self.env, assignments=self.assignments.copy(), districts=copy.deepcopy(self.districts))
+
+    def save(self, path):
+        with open(path, 'wb') as f:
+            pickle.dump(self, f)
+
+    @classmethod
+    def load(cls, path):
+        with open(path, 'rb') as f:
+            return pickle.load(f)
 
     def construct_districts(self):
         allocated = self.assignments != UNALLOCATED
@@ -158,7 +169,11 @@ class DistrictMap:
             f = getattr(self.districts.geometry.loc[unique].reset_index(drop=True), f)
             unions = geometries.groupby(assignments).apply(unary_union).reset_index(drop=True)
             unions.crs = self.env.data.crs
-            self.districts.geometry.loc[unique] = f(unions).values
+            try:
+                self.districts.geometry.loc[unique] = f(unions).values
+            except shapely.errors.GEOSException:
+                self.construct_districts()
+                break
 
     def get_border(self, district, reverse=False):
         if reverse:
@@ -281,3 +296,15 @@ class DistrictMapCollection:
 
         self.district_maps[self.size:new_size] = other
         self.size = new_size
+
+    def calculate_fitness(self, weights):
+        scores, metrics = {}, {}
+        for i, district_map in enumerate(self):
+            scores[i] = 0
+            metrics[i] = {'fitness': '0'}
+            for metric, weight in weights.items():
+                result = getattr(district_map, f'calculate_{metric}')()
+                scores[i] += result * weight
+                metrics[i][metric] = f'{result:.4%}'
+            metrics[i]['fitness'] = f'{scores[i]:.4f}'
+        return scores, metrics

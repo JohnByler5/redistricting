@@ -33,7 +33,7 @@ def infer_utm_crs(data):
     return f'EPSG:{hemisphere_prefix}{zone_number:02d}'
 
 
-class RedistrictingSearchAlgorithm(Algorithm):
+class SearchRedistrictingAlgorithm(Algorithm):
     def __init__(
             self,
             env,
@@ -51,24 +51,23 @@ class RedistrictingSearchAlgorithm(Algorithm):
         self.fitness = 0
         self.mutation_count = 0
 
-    def run(self, generations=1):
+    def run(self, generations):
         with self:
             self._log(f'Initiating map...')
-            self.district_map.randomize()
+            if self._start_map is None:
+                self.district_map.randomize()
+            else:
+                self.district_map = self._start_map
             self._calculate_fitness()
 
             self._log(f'Simulating for {generations:,} generations...')
+            fitness_scores = []
             for generation in range(generations + 1):
-                self._simulate_generation(last=generation == generations)
+                fitness_scores.append(self.fitness)
+                self.simulate_generation(last=generation == generations)
 
             self._log(f'Simulation complete!')
-
-    def _log(self, message):
-        message = f'{time(self.start)} - {message}'
-        with open(self.log_path, 'a') as f:
-            f.write(f'{message}\n')
-        if self.verbose:
-            print(message)
+            return fitness_scores
 
     def _calculate_fitness(self):
         self.fitness = 0
@@ -76,7 +75,7 @@ class RedistrictingSearchAlgorithm(Algorithm):
             self.metrics[metric] = getattr(self.district_map, f'calculate_{metric}')()
             self.fitness += self.metrics[metric] * self.weights[metric]
 
-    def _simulate_generation(self, last=False):
+    def simulate_generation(self, last=False):
         metric_strs = [f'{" ".join(key.title().split("_"))}: {value:.4%}' for key, value in self.metrics.items()]
         self._log(f'Generation: {self.generation_count:,} - Mutations: {self.mutation_count} - '
                   f'Fitness: {self.fitness:.4f} - {" | ".join(metric_str for metric_str in metric_strs)}')
@@ -84,9 +83,9 @@ class RedistrictingSearchAlgorithm(Algorithm):
         self._tick(self.district_map)
         if not last:
             self._log(f'Mutating...')
-            self.mutate()
+            self._mutate()
 
-    def mutate(self):
+    def _mutate(self):
         district_map = self.district_map.copy()
 
         fitness_change, mutation_count = 0, 0
@@ -148,8 +147,14 @@ def main():
         refresh_data()
 
     print(f'{time(start)} - Initiating algorithm...')
-    algorithm = RedistrictingSearchAlgorithm(
-        env=RedistrictingEnv('data/pa/simplified.parquet', n_districts=17, live_plot=False, save_dir='maps'),
+    algorithm = SearchRedistrictingAlgorithm(
+        env=RedistrictingEnv(
+            data_path='data/pa/simplified.parquet',
+            n_districts=17,
+            live_plot=False,
+            save_data_dir='maps/data',
+            save_img_dir='maps/images',
+        ),
         start=start,
         verbose=True,
         save_every=1_000,

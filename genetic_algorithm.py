@@ -5,7 +5,7 @@ import numpy as np
 from shapely.errors import GEOSException
 
 from algorithm import since_start, Algorithm, DictCollection, ParameterCollection, Parameter, RangeParameter
-from maps import count_polygons, DistrictMapCollection
+from maps import count_polygons, DistrictMap, DistrictMapCollection
 from redistricting_env import refresh_data, RedistrictingEnv
 
 
@@ -59,12 +59,13 @@ def normalize(weights):
     return p
 
 
-class RedistrictingGeneticAlgorithm(Algorithm):
+class GeneticRedistrictingAlgorithm(Algorithm):
     def __init__(
             self,
             env,
             start=dt.datetime.now(),
             verbose=1,
+            print_every=1,
             save_every=0,
             log_path='log.txt',
             population_size=2,
@@ -75,6 +76,7 @@ class RedistrictingGeneticAlgorithm(Algorithm):
             min_p=0.0,
     ):
         assert verbose >= 0
+        assert print_every > 0
         assert save_every >= 0
         assert population_size >= 2
         assert starting_population_size is None or starting_population_size >= population_size
@@ -98,6 +100,8 @@ class RedistrictingGeneticAlgorithm(Algorithm):
         super().__init__(env=env, start=start, log_path=log_path, verbose=verbose, save_every=save_every,
                          weights=weights, params=params)
 
+        self.print_every = print_every
+
         self.population_size = population_size
         self.selection_pct = selection_pct
         if starting_population_size is None:
@@ -108,43 +112,44 @@ class RedistrictingGeneticAlgorithm(Algorithm):
 
         self.min_p = min_p
 
-    def run(self, generations=1):
+    def run(self, generations):
         with self:
-            self._log(f'Filling population...')
-            self.population.randomize()
+            if self._start_map is None:
+                self.log(f'Filling population...', verbose=1)
+                self.population.randomize()
+            else:
+                self.population.add(self._start_map)
 
-            self._log(f'Simulating for {generations:,} generations...')
+            self.log(f'Simulating for {generations:,} generations...', verbose=1)
+            fitness_scores = []
             for generation in range(generations + 1):
-                self.simulate_generation(last=generation == generations)
+                fitness = self.simulate_generation(last=generation == generations)
+                fitness_scores.append(fitness)
 
-            self._log(f'Simulation complete!')
+            self.log(f'Simulation complete!', verbose=1)
+            return fitness_scores
 
     def simulate_generation(self, last=False):
-        self._log(f'Generation: {self.time_step_count:,} - Calculating fitness scores...')
-        fitness_scores, metrics_list = self.calculate_fitness()
-        self._log(f'Generation: {self.time_step_count:,} - Selecting best individuals...')
+        should_print = self.time_step_count % self.print_every == 0
+
+        self.log(f'Generation: {self.time_step_count:,} - Calculating fitness scores...',
+                 verbose=2 if should_print else None)
+        fitness_scores, metrics_list = self.population.calculate_fitness(weights=self.weights)
+        self.log(f'Generation: {self.time_step_count:,} - Selecting best individuals...',
+                 verbose=2 if should_print else None)
         selected, selected_metrics = self.select(fitness_scores, metrics_list)
 
         metric_strs = [f'{" ".join(key.title().split("_"))}: {value}' for key, value in selected_metrics[0].items()]
-        self._log(f'Generation: {self.time_step_count:,} - {" | ".join(metric_str for metric_str in metric_strs)}')
+        self.log(f'Generation: {self.time_step_count:,} - {" | ".join(metric_str for metric_str in metric_strs)}',
+                 verbose=1 if should_print else None)
 
         self._tick(selected[0])
         if not last:
-            self._log(f'Generation: {self.time_step_count:,} - Mutating for new generation...')
+            self.log(f'Generation: {self.time_step_count:,} - Mutating for new generation...',
+                     verbose=2 if should_print else None)
             self.population = self._mutate(selected)
 
-    def calculate_fitness(self):
-        scores, metrics = {}, {}
-        for i, district_map in enumerate(self.population):
-            scores[i] = 0
-            metrics[i] = {'fitness': '0'}
-            for metric, weight in self.weights.items():
-                result = getattr(district_map, f'calculate_{metric}')()
-                scores[i] += result * weight
-                metrics[i][metric] = f'{result:.4%}'
-            metrics[i]['fitness'] = f'{scores[i]:.4f}'
-
-        return scores, metrics
+        return max(fitness_scores.values())
 
     def select(self, fitness_scores, metrics):
         n = min(max(round(self.population_size * self.selection_pct), 1), self.population_size - 1)
@@ -304,37 +309,45 @@ def main():
         refresh_data()
 
     print(f'{since_start(start)} - Initiating algorithm...')
-    algorithm = RedistrictingGeneticAlgorithm(
-        env=RedistrictingEnv('data/pa/simplified.parquet', n_districts=17, live_plot=False, save_dir='maps'),
+    algorithm = GeneticRedistrictingAlgorithm(
+        env=RedistrictingEnv(
+            data_path='data/pa/simplified.parquet',
+            n_districts=17,
+            live_plot=False,
+            save_data_dir='maps/data',
+            save_img_dir='maps/images',
+        ),
         start=start,
-        verbose=True,
-        save_every=1_000,
+        verbose=1,
+        print_every=10,
+        save_every=10_000,
         log_path='log.txt',
         population_size=2,
         selection_pct=0.5,
         starting_population_size=1_000,
         weights=DictCollection(
-            contiguity=0,
+            contiguity=1000,
             population_balance=5,
             compactness=1,
             win_margin=-1,
             efficiency_gap=-1,
         ),
         params=ParameterCollection(
-            expansion_population_bias=Parameter(-0.5, exp_factor=1),
-            reduction_population_bias=Parameter(0.5, exp_factor=1),
-            expansion_distance_bias=Parameter(-0.5, exp_factor=1),
-            reduction_distance_bias=Parameter(0.5, exp_factor=1),
-            expansion_surrounding_bias=Parameter(0.5, exp_factor=1),
-            reduction_surrounding_bias=Parameter(-0.5, exp_factor=1),
-            mutation_size=RangeParameter(1.0, 1.0, exp_factor=0.01 ** (1 / 20_000)),
-            mutation_layers=RangeParameter(20, 20, exp_factor=0.1 ** (1 / 20_000), min_value=1),
-            mutation_n=RangeParameter(0.0, 1 / 17, exp_factor=34 ** (1 / 20_000), max_value=34),
+            expansion_population_bias=Parameter(-0.6, exp_factor=1),
+            reduction_population_bias=Parameter(0.6, exp_factor=1),
+            expansion_distance_bias=Parameter(-0.2, exp_factor=1),
+            reduction_distance_bias=Parameter(0.2, exp_factor=1),
+            expansion_surrounding_bias=Parameter(0.1, exp_factor=1),
+            reduction_surrounding_bias=Parameter(-0.1, exp_factor=1),
+            mutation_size=RangeParameter(0.0, 1.0, exp_factor=1 ** (1 / 20_000)),
+            mutation_layers=RangeParameter(1, 1, exp_factor=1 ** (1 / 20_000), min_value=1),
+            mutation_n=RangeParameter(1 / 17, 1 / 17, exp_factor=2 ** (1 / 10_000), max_value=34),
         ),
         min_p=0.1,
     )
 
-    algorithm.run(generations=20_000)
+    algorithm.set_start_map(DistrictMap.load('maps/current/pa'))
+    algorithm.run(generations=100_000)
 
 
 if __name__ == '__main__':
