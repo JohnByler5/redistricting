@@ -1,39 +1,15 @@
 import datetime as dt
 
-import matplotlib.pyplot as plt
 import numpy as np
-from shapely.geometry import Polygon, MultiPolygon, LineString, MultiLineString
-from shapely.geometry.collection import GeometryCollection
 
+from algorithm import Algorithm
 from maps import DistrictMap, DISTRICT_FEATURES
-from redistricting_env import refresh_data, RedistrictingEnv
-
-
-def time(start):
-    return f'{dt.timedelta(seconds=round((dt.datetime.now() - start).total_seconds()))}'
-
-
-def count_polygons(geometry):
-    if isinstance(geometry, (Polygon, LineString)):
-        return 1
-    elif isinstance(geometry, (MultiPolygon, MultiLineString, GeometryCollection)):
-        return len(geometry.geoms)
-    else:
-        raise ValueError(f'Incorrect geom type: "{type(geometry)}"')
-
-
-def get_utm_zone(longitude):
-    return int(((longitude + 180) / 6) % 60) + 1
-
-
-def infer_utm_crs(data):
-    centroid = data.to_crs(epsg=4326).unary_union.centroid
-    zone_number = get_utm_zone(centroid.x)
-    hemisphere_prefix = 326 if centroid.y >= 0 else 327
-    return f'EPSG:{hemisphere_prefix}{zone_number:02d}'
 
 
 class SearchRedistrictingAlgorithm(Algorithm):
+    """Simplistic algorithm that uses search techniques to try to optimize the map, built for comparison purposes. Fails
+    astoundingly when compared to the more advanced Genetic algorithm, so mostly abandoned from further improvement."""
+
     def __init__(
             self,
             env,
@@ -53,20 +29,20 @@ class SearchRedistrictingAlgorithm(Algorithm):
 
     def run(self, generations):
         with self:
-            self._log(f'Initiating map...')
+            self.log(f'Initiating map...')
             if self._start_map is None:
                 self.district_map.randomize()
             else:
                 self.district_map = self._start_map
             self._calculate_fitness()
 
-            self._log(f'Simulating for {generations:,} generations...')
+            self.log(f'Simulating for {generations:,} generations...')
             fitness_scores = []
             for generation in range(generations + 1):
                 fitness_scores.append(self.fitness)
                 self.simulate_generation(last=generation == generations)
 
-            self._log(f'Simulation complete!')
+            self.log(f'Simulation complete!')
             return fitness_scores
 
     def _calculate_fitness(self):
@@ -77,12 +53,12 @@ class SearchRedistrictingAlgorithm(Algorithm):
 
     def simulate_generation(self, last=False):
         metric_strs = [f'{" ".join(key.title().split("_"))}: {value:.4%}' for key, value in self.metrics.items()]
-        self._log(f'Generation: {self.generation_count:,} - Mutations: {self.mutation_count} - '
-                  f'Fitness: {self.fitness:.4f} - {" | ".join(metric_str for metric_str in metric_strs)}')
+        self.log(f'Generation: {self.time_step_count:,} - Mutations: {self.mutation_count} - '
+                 f'Fitness: {self.fitness:.4f} - {" | ".join(metric_str for metric_str in metric_strs)}')
 
         self._tick(self.district_map)
         if not last:
-            self._log(f'Mutating...')
+            self.log(f'Mutating...')
             self._mutate()
 
     def _mutate(self):
@@ -92,7 +68,7 @@ class SearchRedistrictingAlgorithm(Algorithm):
         while fitness_change <= 0:
             fitness_change = self._mutation(district_map)
             mutation_count += 1
-            self._log(f'Mutation Count: {mutation_count} - Proposed Fitness Change: {fitness_change:.4f}')
+            self.log(f'Mutation Count: {mutation_count} - Proposed Fitness Change: {fitness_change:.4f}')
 
         self.district_map = district_map
         self._calculate_fitness()
@@ -136,40 +112,3 @@ class SearchRedistrictingAlgorithm(Algorithm):
 
     def calculate_fitness(self, district_map):
         return sum(getattr(district_map, f'calculate_{metric}')() * self.weights[metric] for metric in self.metrics)
-
-
-def main():
-    start = dt.datetime.now()
-
-    refresh = False
-    if refresh:
-        print(f'{time(start)} - Refreshing data...')
-        refresh_data()
-
-    print(f'{time(start)} - Initiating algorithm...')
-    algorithm = SearchRedistrictingAlgorithm(
-        env=RedistrictingEnv(
-            data_path='data/pa/simplified.parquet',
-            n_districts=17,
-            live_plot=False,
-            save_data_dir='maps/data',
-            save_img_dir='maps/images',
-        ),
-        start=start,
-        verbose=True,
-        save_every=1_000,
-        log_path='log.txt',
-        weights={
-            'contiguity': 0,
-            'population_balance': 10,
-            'compactness': 2,
-            'win_margin': -2,
-            'efficiency_gap': -1,
-        },
-    )
-
-    algorithm.run(generations=20_000)
-
-
-if __name__ == '__main__':
-    main()

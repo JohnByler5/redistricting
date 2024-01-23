@@ -14,6 +14,9 @@ def since_start(start):
 
 
 class Parameter:
+    """Class that allows ease of use for many useful functions in the algorithms, such as changing the parameter
+     values over time and limiting those to certain minimum and maximum values."""
+
     def __init__(self, start_value, exp_factor=1, min_value=-np.inf, max_value=np.inf):
         assert is_number(start_value)
         assert is_number(exp_factor) and exp_factor > 0
@@ -25,10 +28,13 @@ class Parameter:
         self.max_value = max_value
 
     def tick(self):
+        """Perform one time step for the parameter value, changing the value by an exponential factor."""
         self.value = np.clip(self.value ** self.exp_factor, self.min_value, self.max_value)
 
 
 class RangeParameter:
+    """Similar to the parameter class but uses a range of two values from which the algorithms can randomly sample."""
+
     def __init__(self, *values, exp_factor=1, min_value=-np.inf, max_value=np.inf):
         if not isinstance(exp_factor, tuple):
             exp_factor = (exp_factor, exp_factor)
@@ -53,9 +59,11 @@ class RangeParameter:
         self.high.tick()
 
     def random(self):
+        """Sample a random floating point value from the parameter range."""
         return np.random.random() * (self.high.value - self.low.value) + self.low.value
 
     def randint(self, scale=1, min_value=1):
+        """Sample a random integer value from the parameter range."""
         return np.random.randint(
             max(int(self.low.value * scale), min_value),
             max(int(self.high.value * scale), min_value) + 1,
@@ -63,6 +71,9 @@ class RangeParameter:
 
 
 class DictCollection(dict):
+    """Provides ease of use functionality for working with dictionaries that are a collection of items. Used in the
+    algorithm to easily work with metric weights."""
+
     def __init__(self, **items):
         super().__init__(items)
 
@@ -77,15 +88,20 @@ class DictCollection(dict):
 
 
 class ParameterCollection(DictCollection):
+    """Builds off the DictCollection class but to work with parameters specifically."""
+
     def __init__(self, **params):
         super().__init__(**params)
 
     def tick(self):
+        """Performs a time step for all paramreters in the collection, mutating them all at once."""
         for param in self.values():
             param.tick()
 
 
 class Algorithm:
+    """Base algorithm class that is built off by the Genetic and Search aglrothms. Provides common functionality."""
+
     def __init__(
             self,
             env,
@@ -124,6 +140,7 @@ class Algorithm:
         self._start_map = None
 
     def log(self, message, verbose=None):
+        """Logs a message in a file and in the console (if indicated by verbose) with a timestamp."""
         message = f'{since_start(self.start)} - {message}'
         with open(self.log_path, 'a') as f:
             f.write(f'{message}\n')
@@ -146,11 +163,14 @@ class Algorithm:
     def run(self, generations) -> [int]: ...
 
     def _tick(self, district_map):
+        """Performs a time step (or generation) for the algorithm."""
         self._plot(district_map)
         self.params.tick()
         self.time_step_count += 1
 
     def _plot(self, district_map):
+        """Plots and saves the current district map if wanted and indicated for this timestep by the relevant
+        parameters, i.e. 'save_every' and the save directory parameters."""
         if self.env.save_data_dir is not None and ((self.time_step_count % self.save_every) == 0):
             district_map.save(path=f'{self.env.save_data_dir}/{self.start.strftime("%Y-%m-%d-%H-%M-%S")}.pkl')
 

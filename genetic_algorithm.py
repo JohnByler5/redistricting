@@ -17,6 +17,8 @@ def union_from_difference(before, geometries, removals):
 
 
 def apply_bias(a, bias, min_p=0.0):
+    """Effective probability balancing algorithm to apply bias exponents to calculate heuristic probabilities."""
+
     assert -1 <= bias <= 1
     assert 0 <= min_p <= 1
 
@@ -47,10 +49,12 @@ def apply_bias(a, bias, min_p=0.0):
 
 
 def calculate_weights(*arrays_and_biases, min_p=0.0):
+    """Calculates weights from arrays and biases with the apply_bias algorithm."""
     return np.prod([apply_bias(a, bias, min_p=min_p) for a, bias in arrays_and_biases], axis=0)
 
 
 def normalize(weights):
+    """Normalizes the weights to probabilities."""
     p = np.nan_to_num(weights / weights.sum())
     if p.sum() < 1:
         p[p.argmin()] += 1 - p.sum()
@@ -60,6 +64,8 @@ def normalize(weights):
 
 
 class GeneticRedistrictingAlgorithm(Algorithm):
+    """Main class the performs the genetic machine learning algorithm to optimize congressional district maps."""
+
     def __init__(
             self,
             env,
@@ -114,6 +120,7 @@ class GeneticRedistrictingAlgorithm(Algorithm):
         self.population = None
 
     def run(self, generations):
+        """Runs the algorithm for a specified number of generations."""
         with self:
             if self._start_map is None:
                 self.log(f'Filling population...', verbose=1)
@@ -131,6 +138,7 @@ class GeneticRedistrictingAlgorithm(Algorithm):
             return fitness_scores
 
     def fill_population(self):
+        """Fills the currently empty population with random maps to begin the algorithm."""
         count = sum(len(os.listdir(os.path.join(self.starting_maps_dir, dir_name)))
                     for dir_name in os.listdir(self.starting_maps_dir))
         start_size = count if self.starting_population_size == -1 else self.starting_population_size
@@ -150,6 +158,7 @@ class GeneticRedistrictingAlgorithm(Algorithm):
                     return
 
     def simulate_generation(self, last=False):
+        """Runs a single generation of the algorithm."""
         should_print = self.time_step_count % self.print_every == 0
 
         self.log(f'Generation: {self.time_step_count:,} - Calculating fitness scores...',
@@ -172,6 +181,7 @@ class GeneticRedistrictingAlgorithm(Algorithm):
         return max(fitness_scores.values())
 
     def select(self, fitness_scores, metrics):
+        """Selects district maps from the population to mutate based on fitness scores."""
         n = min(max(round(self.population_size * self.selection_pct), 1), self.population_size - 1)
         indices = sorted(fitness_scores, key=lambda x: fitness_scores[x], reverse=True)[:n]
         selected = self.population.select(indices, new_max_size=self.population_size)
@@ -179,6 +189,7 @@ class GeneticRedistrictingAlgorithm(Algorithm):
         return selected, selected_metrics
 
     def _mutate(self, selected):
+        """Mutates the selected district maps. Can perform multiple mutations per map depending on parameters."""
         to_add = DistrictMapCollection(env=self.env, max_size=selected.empty_space())
         for district_map in itertools.cycle(selected):
             district_map = district_map.copy()
@@ -196,6 +207,8 @@ class GeneticRedistrictingAlgorithm(Algorithm):
         return selected
 
     def _mutation(self, district_map, district):
+        """Performs a single mutation for a single district map. Will expand or reduce the district depedning on what
+        is necessary, while being also somewhat random as to which."""
         expand_start, reduce_start = None, None
         for _ in range(self.params.mutation_layers.randint(scale=1, min_value=1)):
             mask = district_map.mask(district)
@@ -209,6 +222,8 @@ class GeneticRedistrictingAlgorithm(Algorithm):
                 reduce_start = self._reduction(district_map, district, centroid, reduce_start)
 
     def _expansion(self, district_map, district, centroid, start=None):
+        """Performs an expansion mutation for the district."""
+
         eligible = district_map.get_border(district, reverse=False)
         if eligible.empty:
             return start
@@ -233,6 +248,8 @@ class GeneticRedistrictingAlgorithm(Algorithm):
         return start
 
     def _reduction(self, district_map, district, centroid, start=None):
+        """Performs a reduction mutation for the district."""
+
         eligible = district_map.get_border(district, reverse=True)
         if eligible.empty:
             return start
@@ -280,6 +297,8 @@ class GeneticRedistrictingAlgorithm(Algorithm):
         return start
 
     def _select_mutations(self, eligible, district_map, weights, centroid, start=None, centroid_distance_weight=1):
+        """Selects which VTDs to mutate based on parameters while trying to remain contiguous. May return less than
+        intended if undesired contiguity harming effects would have been produced with more."""
         if start is None:
             start = self._choose_start(eligible, district_map, weights)
             if start is None:
@@ -302,6 +321,8 @@ class GeneticRedistrictingAlgorithm(Algorithm):
         return selected, start
 
     def _choose_start(self, eligible, district_map, weights):
+        """Chooses which VTD to start with for a given mutation. Other VTDs are selected by proximity to this starting
+        VTD and to the current center of the district."""
         attempts, max_attempts = 0, (weights > 0).sum()
         while attempts < max_attempts:
             i = np.random.choice(range(len(eligible)), p=normalize(weights))
@@ -313,6 +334,8 @@ class GeneticRedistrictingAlgorithm(Algorithm):
         return None
 
     def _verify_contiguity(self, which, district_map, removals):
+        """Verifies the contiguity of a district following a potential mutation of VTD assignments to determine whether
+        it needs to be modified or rejected entirely."""
         previous = district_map.districts.geometry.loc[which]
         geometries = self.env.data.geometry[district_map.mask(which)]
         new = union_from_difference(previous, geometries, removals)

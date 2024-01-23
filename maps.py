@@ -20,6 +20,7 @@ METRICS = ['contiguity', 'population_balance', 'compactness', 'win_margin', 'eff
 
 
 def count_polygons(geometry):
+    """Useful helper function to count the number of polygons in a geometry, used for contiguity calculations."""
     if isinstance(geometry, (Polygon, LineString)):
         return 1
     elif isinstance(geometry, (MultiPolygon, MultiLineString, GeometryCollection)):
@@ -30,6 +31,8 @@ def count_polygons(geometry):
 
 def save_random_maps(env, save_dir, n=None, save_n=None, weights=None, balance_population=True,
                      balance_contiguity=True):
+    """Generates random DistrictMap instances and saves them to a folder for use in an algorithm."""
+
     if n is None:
         n = 1_000_000
     if save_n is None:
@@ -77,6 +80,10 @@ def save_random_maps(env, save_dir, n=None, save_n=None, weights=None, balance_p
 
 
 class DistrictMap:
+    """Class that represents a given congressional district map solution for a RedistrictingEnv environment instance.
+    Stores the assignments for each Voter Tabulation District (VTDs) as well as the aggragated geometry and metric dat
+    for the current district assignments."""
+
     def __init__(self, env, assignments=None, districts=None):
         assert isinstance(env, RedistrictingEnv)
         self.env = env
@@ -107,11 +114,13 @@ class DistrictMap:
         return DistrictMap(env=self.env, assignments=self.assignments.copy(), districts=copy.deepcopy(self.districts))
 
     def save(self, path):
+        """Saves DistrictMap instance to a pickle file."""
         with open(path, 'wb') as f:
             pickle.dump(self, f)
 
     @classmethod
     def load(cls, path, env=None):
+        """Loads DistrictMap instance from a saved pickle file."""
         with open(path, 'rb') as f:
             obj = pickle.load(f)
             if env is not None:
@@ -119,6 +128,7 @@ class DistrictMap:
             return obj
 
     def construct_districts(self):
+        """Constructs the district geometries and aggragated data for the current assignments of VTDs."""
         allocated = self.assignments != UNALLOCATED
         if not allocated.sum():
             return
@@ -130,21 +140,30 @@ class DistrictMap:
         )
 
     def calculate_contiguity(self):
+        """Calculates the contiguity metric. Real congressional district maps must be contiguous."""
         total_breaks = sum(self.districts['geometry'].apply(count_polygons) - 1)
         max_breaks = len(self.env.data) - self.env.n_districts
         return 1 - total_breaks / max_breaks
 
     def calculate_population_balance(self):
+        """Calculates the population balance metric. Congressional districts should have equal or very close to equal
+        populations."""
         return np.abs(self.districts.population - self.env.ideal_population).mean() / self.env.ideal_population
 
     def calculate_compactness(self):
+        """Calculates the compactness metric. Uses the Polsby-Popper score to return a percentage of how close the
+        district is to a circle (i.e. perfectly compact)."""
         return (4 * np.pi * self.districts.geometry.area / self.districts.geometry.length ** 2).mean()
 
     def calculate_win_margin(self):
+        """Calculates the average win margin for the districts. More competitive districts (lower win margin) produce
+        better congressional outcomes."""
         return ((self.districts['democrat'] - self.districts['republican']).abs() / (
                 self.districts['democrat'] + self.districts['republican'])).mean()
 
     def calculate_efficiency_gap(self):
+        """Calculates the efficiency gap metric, which is essnetially a percentage of how Gerrymandered the maps is.
+        Lower is better."""
         dem, rep = self.districts['democrat'], self.districts['republican']
         total_votes = dem + rep
         party_victory = (np.clip(self.districts['democrat'] - self.districts['republican'], -1, 1) + 1) / 2
@@ -154,6 +173,8 @@ class DistrictMap:
         return np.abs(dem_wasted_votes - rep_wasted_votes) / total_votes.sum()
 
     def randomize(self, balance_population=True, balance_contiguity=True):
+        """Randomizes the district map ssignments while ensuring contiguity and balanceing population if deisred."""
+
         self.assignments = np.full(self.env.n_blocks, UNALLOCATED)
         n_allocated = 0
         for district, starting_point in enumerate(np.random.choice(self.env.n_blocks, self.env.n_districts,
@@ -202,6 +223,7 @@ class DistrictMap:
             self.balance_contiguity()
 
     def balance_contiguity(self):
+        """Second layer of contiguity ensurance. Attempts to restore the map to be more contiguous where possible."""
         for district in range(self.env.n_districts):
             geometry = self.districts.geometry[district]
             if count_polygons(geometry) > 1:
@@ -221,6 +243,9 @@ class DistrictMap:
                     self.set(vtds, add_district)
 
     def balance_population(self):
+        """Balances the population of the district assignments to be very minimal. Usually produces a result within
+        0.5% average deviation of the ideal population for each district, but takes a couple of minutes to run."""
+
         neighbors = self.env.neighbors['index_right']
         balance = np.abs(self.districts.population - self.env.ideal_population).mean() / self.env.ideal_population
         min_balance = balance
@@ -290,6 +315,7 @@ class DistrictMap:
             failed_count = 0
 
     def plot(self, save_path=None, save=True):
+        """Plots and saves (if desired) the current district map."""
         save = save and save_path is not None
         draw = self.env.live_plot and ('_temp_district' not in self.env.data or
                                        (self.env.data['_temp_district'] != self.assignments).any())
@@ -305,6 +331,8 @@ class DistrictMap:
             self.env.fig.savefig(save_path)
 
     def set(self, index, to_district):
+        """Modifies the assignments and aggragated district geometries and data to allocate certain VTDs to a different
+        district(s)."""
         if not hasattr(index, '__iter__'):
             index = np.array([index])
         if not hasattr(to_district, '__iter__'):
@@ -329,6 +357,7 @@ class DistrictMap:
                 break
 
     def get_border(self, district, reverse=False):
+        """Gets all the bordering VTDs of a given district, inside or outside determined by 'reverse.'"""
         if reverse:
             i2, i1 = self.env.neighbors.index, self.env.neighbors['index_right']
         else:
@@ -337,10 +366,12 @@ class DistrictMap:
                                             (self.assignments[i2] != district)]['index_right'].unique())
 
     def get_borders(self):
+        """Gets all the borders of all districts of the map for use in the algorithm."""
         return self.env.neighbors[(self.assignments[self.env.neighbors.index] != self.assignments[
             self.env.neighbors['index_right']])]['index_right']
 
     def mask(self, district):
+        """Calculates a boolean mask of VTD selections for a given district."""
         return self.assignments == district
 
     def repeated(self, n):
@@ -384,6 +415,8 @@ class DistrictMap:
 
 
 class DistrictMapCollection:
+    """Helper class for a collection/population of DistrictMap instances."""
+
     def __init__(self, env, max_size=None, district_maps=None):
         assert isinstance(env, RedistrictingEnv)
         assert max_size is not None or district_maps is not None
@@ -427,21 +460,25 @@ class DistrictMapCollection:
         return self.max_size - self.size
 
     def randomize(self, *args, **kwargs):
+        """Randomizes all district maps in the collection."""
         for i in range(self.max_size):
             self.district_maps[i].randomize(*args, **kwargs)
         self.size = self.max_size
 
     def fill_random(self, *args, **kwargs):
+        """Fills the remaining space within the collection with random maps."""
         for i in range(self.size, self.max_size):
             self.district_maps[i].randomize(*args, **kwargs)
         self.size = self.max_size
 
     def select(self, indices, new_max_size=None):
+        """Selects specific maps and returns a new collection of them."""
         if new_max_size is None:
             new_max_size = self.max_size
         return DistrictMapCollection(self.env, max_size=new_max_size, district_maps=self.district_maps[indices])
 
     def add(self, other):
+        """Adds a new map to the collection."""
         assert isinstance(other, (DistrictMap, DistrictMapCollection))
         assert self.env is other.env
 
@@ -456,6 +493,8 @@ class DistrictMapCollection:
         self.size = new_size
 
     def calculate_fitness(self, weights):
+        """Calculates metrics and fitness from a set of metric weights for each of the district maps for use in the
+        algorithms."""
         scores, metrics = {}, {}
         for i, district_map in enumerate(self):
             scores[i] = 0

@@ -9,6 +9,9 @@ from redistricting_env import RedistrictingEnv
 
 
 class AlgorithmTest:
+    """Class for comparing sets of parameters (intended for small changes in values to a specific parameter) in order
+    to find the optimal values for parameters and thereby make the algorithm more effective."""
+
     def __init__(self, algorithm: type[Algorithm], param_sets: dict, test_size: int, start_map_path=None):
         self.algorithm = algorithm
         self.param_sets = param_sets
@@ -17,6 +20,8 @@ class AlgorithmTest:
         self.log = algorithm(**list(param_sets.values())[0]).log
 
     def run(self, generations, results_path):
+        """Run the test with the given parameter value sets and write the results to a text file."""
+
         self.log(f'Starting test with {len(self.param_sets)} param sets, test_size={self.test_size}, and '
                  f'generations={generations}...')
         results_str = ''

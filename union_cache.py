@@ -5,6 +5,12 @@ from shapely.geometry import Polygon
 
 
 class UnionCache:
+    """Helper class built to provide significant speed improvements to the process of combining multiple geometries,
+    a.k.a "union." It stores previous union calculations to compare with what is needed for the new calculation, and
+    tries to find the previous stored union that most closely matches the new. This will then make the amount of changes
+    much less, as all that needs done is small amounts of adding and subtracting of the slight mismatching geometries.
+    Speeds up the algorithm by 2x-3x."""
+
     def __init__(self, geometries, size=1_000):
         assert isinstance(geometries, gpd.GeoSeries)
         assert isinstance(size, int)
@@ -17,6 +23,7 @@ class UnionCache:
         self._count = 0
 
     def calculate_union(self, mask, geometries=None):
+        """Calculates a union from a mask of a series of geometries telling which geometries need combined."""
         if not mask.any():
             return Polygon(np.zeros((3, 2)))
         if geometries is None:
@@ -43,6 +50,7 @@ class UnionCache:
         return union
 
     def _find_closest_union(self, bounds):
+        """Finds the closest stored union to what needs calculated from the bounds of the geometries to calculate."""
         scores = self._calculate_bbox_score(bounds)
         if not len(scores):
             return None, None, 0
@@ -50,6 +58,9 @@ class UnionCache:
         return self._cache.geometry[i], self._cache['mask'][i], scores[i]
 
     def _calculate_bbox_score(self, bounds):
+        """Calculates the similarity scores for each of the stores unions to the given bounds set for the new
+        calculation."""
+
         bounds_series = self._cache.geometry[:self._count].bounds
         u_minx, u_miny, u_maxx, u_maxy = [bounds_series[s] for s in ['minx', 'miny', 'maxx', 'maxy']]
 
@@ -67,6 +78,7 @@ class UnionCache:
         return scores.values
 
     def _add(self, mask, union):
+        """Adds the newly calculated union to the cache and removes an old one if needed."""
         self._cache.at[self._index, 'mask'] = mask
         self._cache.at[self._index, 'geometry'] = union
         self._index = (self._index + 1) % self.size
