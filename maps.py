@@ -1,4 +1,6 @@
 import copy
+import datetime as dt
+import os
 import pickle
 
 import geopandas as gpd
@@ -24,6 +26,54 @@ def count_polygons(geometry):
         return len(geometry.geoms)
     else:
         raise ValueError(f'Incorrect geom type: "{type(geometry)}"')
+
+
+def save_random_maps(env, save_dir, n=None, save_n=None, weights=None, balance_population=True,
+                     balance_contiguity=True):
+    if n is None:
+        n = 1_000_000
+    if save_n is None:
+        save_n = n
+    assert n >= 1
+    assert 1 <= save_n <= n
+    assert save_n >= n or weights is not None
+
+    start = dt.datetime.now()
+    dt_str = start.strftime("%Y-%m-%d-%H-%M-%S")
+    save_dir = os.path.join(save_dir, dt_str)
+    os.mkdir(save_dir)
+    maps = []
+    print(f'{dt.timedelta(seconds=round((dt.datetime.now() - start).total_seconds()))} - Generating maps...')
+    for i in range(n):
+        district_map = DistrictMap(env=env)
+        district_map.randomize(balance_population=balance_population, balance_contiguity=balance_contiguity)
+        print(f'{dt.timedelta(seconds=round((dt.datetime.now() - start).total_seconds()))} - ({i + 1}): '
+              f'Contiguity: {district_map.calculate_contiguity():.4%} | '
+              f'Population Balance: {district_map.calculate_population_balance():.4%} | '
+              f'Compactness: {district_map.calculate_compactness():.4%} | '
+              f'Win Margin: {district_map.calculate_win_margin():.4%} | '
+              f'Efficiency Gap: {district_map.calculate_efficiency_gap():.4%}')
+
+        if save_n >= n:
+            save_path = f'{os.path.join(save_dir, str(i + 1))}.pkl'
+            district_map.save(save_path)
+        else:
+            maps.append(district_map)
+
+    if save_n < n:
+        collection = DistrictMapCollection(env=env, max_size=len(maps), district_maps=maps)
+        print(f'{dt.timedelta(seconds=round((dt.datetime.now() - start).total_seconds()))} - '
+              f'Calculating fitness scores...')
+        fitness_scores, _ = collection.calculate_fitness(weights=weights)
+        print(f'{dt.timedelta(seconds=round((dt.datetime.now() - start).total_seconds()))} - '
+              f'Selecting best {save_n:,} maps...')
+        indices = sorted(fitness_scores, key=lambda x: fitness_scores[x], reverse=True)[:save_n]
+        collection = collection.select(indices, new_max_size=save_n)
+        print(f'{dt.timedelta(seconds=round((dt.datetime.now() - start).total_seconds()))} - '
+              f'Saving {len(collection)} maps...')
+        for i, map_ in enumerate(collection, 1):
+            save_path = f'{os.path.join(save_dir, str(i))}.pkl'
+            map_.save(save_path)
 
 
 class DistrictMap:
@@ -61,9 +111,12 @@ class DistrictMap:
             pickle.dump(self, f)
 
     @classmethod
-    def load(cls, path):
+    def load(cls, path, env=None):
         with open(path, 'rb') as f:
-            return pickle.load(f)
+            obj = pickle.load(f)
+            if env is not None:
+                obj.env = env
+            return obj
 
     def construct_districts(self):
         allocated = self.assignments != UNALLOCATED
@@ -82,8 +135,7 @@ class DistrictMap:
         return 1 - total_breaks / max_breaks
 
     def calculate_population_balance(self):
-        return (np.minimum(self.districts['population'], self.env.ideal_population) / np.maximum(
-            self.districts['population'], self.env.ideal_population)).mean()
+        return np.abs(self.districts.population - self.env.ideal_population).mean() / self.env.ideal_population
 
     def calculate_compactness(self):
         return (4 * np.pi * self.districts.geometry.area / self.districts.geometry.length ** 2).mean()
@@ -101,7 +153,7 @@ class DistrictMap:
         rep_wasted_votes = (rep - (necessary_votes * (1 - party_victory))).sum()
         return np.abs(dem_wasted_votes - rep_wasted_votes) / total_votes.sum()
 
-    def randomize(self):
+    def randomize(self, balance_population=True, balance_contiguity=True):
         self.assignments = np.full(self.env.n_blocks, UNALLOCATED)
         n_allocated = 0
         for district, starting_point in enumerate(np.random.choice(self.env.n_blocks, self.env.n_districts,
@@ -110,6 +162,7 @@ class DistrictMap:
             n_allocated += 1
 
         skipped_districts = set()
+        populations = np.full(self.env.n_districts, 0)
         districts, neighbors = np.array(range(self.env.n_districts)), self.env.neighbors['index_right']
         while n_allocated < len(self.env.data) and len(skipped_districts) != self.env.n_districts:
             np.random.shuffle(districts)
@@ -124,6 +177,7 @@ class DistrictMap:
                     continue
 
                 self.assignments[touching_vtds] = district
+                populations[district] += self.env.data.population[touching_vtds].sum()
                 n_allocated += len(touching_vtds)
 
         while n_allocated < len(self.env.data):
@@ -132,12 +186,111 @@ class DistrictMap:
                 closest_vtd = np.argmin(unallocated.distance(self.env.data.geometry[self.assignments != UNALLOCATED]))
                 if self.assignments[closest_vtd] == UNALLOCATED:
                     continue
-                self.assignments[i] = self.assignments[closest_vtd]
+
+                district = self.assignments[closest_vtd]
+                self.assignments[i] = district
+                populations[district] += self.env.data.population[i]
                 n_allocated += 1
 
         self.construct_districts()
+        if balance_contiguity:
+            self.balance_contiguity()
+        if not balance_population:
+            return
+        self.balance_population()
+        if balance_contiguity:
+            self.balance_contiguity()
 
-    def plot(self, save_path, save=True):
+    def balance_contiguity(self):
+        for district in range(self.env.n_districts):
+            geometry = self.districts.geometry[district]
+            if count_polygons(geometry) > 1:
+                to_remove = list(geometry.geoms)
+                to_remove.pop(np.argmax([polygon.area for polygon in to_remove]))
+                for polygon in to_remove:
+                    geometries = self.env.data.geometry[self.assignments == district]
+                    vtds = geometries.index[polygon.contains(geometries.centroid)]
+                    vtds = vtds[vtds.isin(self.env.neighbors.index)]
+                    if not len(vtds):
+                        continue
+                    touching = self.assignments[self.env.neighbors['index_right'][vtds]]
+                    touching = touching[touching != district]
+                    if not len(touching):
+                        continue
+                    add_district = np.random.choice(touching)
+                    self.set(vtds, add_district)
+
+    def balance_population(self):
+        neighbors = self.env.neighbors['index_right']
+        balance = np.abs(self.districts.population - self.env.ideal_population).mean() / self.env.ideal_population
+        min_balance = balance
+        same_prev_count, used, failed_count = 0, {}, 0
+        while same_prev_count < 2_000 and balance >= 0.002:
+            available = self.districts[[bool(i not in used or len(used[i])) for i in self.districts.index]]
+            district = available.index[np.argmin(available.population)]
+            if self.districts.population[district] > self.env.ideal_population:
+                used = {}
+                failed_count += 1
+                if failed_count >= 10:
+                    break
+                continue
+
+            touching_vtds = neighbors[self.assignments[neighbors.index] == district].unique()
+            touching_vtds = touching_vtds[self.assignments[touching_vtds] != district]
+            if not len(touching_vtds):
+                used[district] = []
+                continue
+            used.setdefault(district, list(self.assignments[touching_vtds]))
+            target = used[district].pop(np.random.randint(low=0, high=len(used[district])))
+            touching_vtds = touching_vtds[self.assignments[touching_vtds] == target]
+
+            max_population = self.env.ideal_population * (1 + balance / self.env.n_districts)
+            if self.districts.population[district] + self.env.data.population[touching_vtds].sum() > max_population:
+                new = self.env.data.geometry[touching_vtds].centroid
+                to, from_ = self.districts.geometry[district].centroid, self.districts.geometry[target].centroid
+                key = (new.x - to.x) ** 2 + (new.y - to.y) ** 2 - (new.x - from_.x) ** 2 - (new.y - from_.y) ** 2
+                touching_vtds = touching_vtds[key.argsort()]
+
+                bounds = np.array([0, len(touching_vtds)])
+                while True:
+                    selected = touching_vtds[:max(int(bounds.mean()), bounds[0] + 1)]
+                    if bounds[0] + 1 >= bounds[1]:
+                        break
+                    which = int(self.districts.population[district] + self.env.data.population[touching_vtds].sum() >
+                                self.env.ideal_population * (1 + balance / self.env.n_districts))
+                    bounds[which] = len(selected)
+                touching_vtds = selected
+
+            if not len(touching_vtds):
+                continue
+
+            mask = self.assignments == target
+            geometries = self.env.data.geometry[mask]
+            union = self.env.union_cache.calculate_union(mask, geometries)
+            if count_polygons(union) > count_polygons(self.districts.geometry[target]):
+                new = self.env.union_cache.calculate_union(self.env.data.index.isin(touching_vtds))
+                to_add = [polygon for polygon in union.geoms if polygon.touches(new)]
+                if not to_add:
+                    continue
+                to_add.pop(np.argmax([polygon.area for polygon in to_add]))
+                for polygon in to_add:
+                    contains = geometries.index[polygon.contains(geometries.centroid)].to_numpy()
+                    if len(contains):
+                        touching_vtds = np.concatenate([touching_vtds, contains])
+
+            self.set(touching_vtds, district)
+            prev_min_balance = min_balance
+            min_balance = min(min_balance, balance)
+            balance = np.abs(self.districts.population - self.env.ideal_population).mean() / self.env.ideal_population
+            if min_balance == prev_min_balance:
+                same_prev_count += 1
+            else:
+                same_prev_count = 0
+                used = {}
+            failed_count = 0
+
+    def plot(self, save_path=None, save=True):
+        save = save and save_path is not None
         draw = self.env.live_plot and ('_temp_district' not in self.env.data or
                                        (self.env.data['_temp_district'] != self.assignments).any())
         if not (save or draw):
@@ -273,9 +426,14 @@ class DistrictMapCollection:
     def empty_space(self):
         return self.max_size - self.size
 
-    def randomize(self):
+    def randomize(self, *args, **kwargs):
         for i in range(self.max_size):
-            self.district_maps[i].randomize()
+            self.district_maps[i].randomize(*args, **kwargs)
+        self.size = self.max_size
+
+    def fill_random(self, *args, **kwargs):
+        for i in range(self.size, self.max_size):
+            self.district_maps[i].randomize(*args, **kwargs)
         self.size = self.max_size
 
     def select(self, indices, new_max_size=None):
@@ -308,3 +466,4 @@ class DistrictMapCollection:
                 metrics[i][metric] = f'{result:.4%}'
             metrics[i]['fitness'] = f'{scores[i]:.4f}'
         return scores, metrics
+

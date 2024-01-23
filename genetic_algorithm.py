@@ -1,12 +1,12 @@
 import datetime as dt
 import itertools
+import os
 
 import numpy as np
 from shapely.errors import GEOSException
 
 from algorithm import since_start, Algorithm, DictCollection, ParameterCollection, Parameter, RangeParameter
-from maps import count_polygons, DistrictMap, DistrictMapCollection
-from redistricting_env import refresh_data, RedistrictingEnv
+from maps import count_polygons, save_random_maps, DistrictMap, DistrictMapCollection
 
 
 def union_from_difference(before, geometries, removals):
@@ -63,6 +63,7 @@ class GeneticRedistrictingAlgorithm(Algorithm):
     def __init__(
             self,
             env,
+            starting_maps_dir,
             start=dt.datetime.now(),
             verbose=1,
             print_every=1,
@@ -79,7 +80,8 @@ class GeneticRedistrictingAlgorithm(Algorithm):
         assert print_every > 0
         assert save_every >= 0
         assert population_size >= 2
-        assert starting_population_size is None or starting_population_size >= population_size
+        assert starting_population_size is None or starting_population_size == -1 or \
+               starting_population_size >= population_size
         assert selection_pct <= 0.5
         assert 0 <= min_p <= 1
 
@@ -101,22 +103,21 @@ class GeneticRedistrictingAlgorithm(Algorithm):
                          weights=weights, params=params)
 
         self.print_every = print_every
-
         self.population_size = population_size
         self.selection_pct = selection_pct
         if starting_population_size is None:
             starting_population_size = population_size
         self.starting_population_size = starting_population_size
+        self.starting_maps_dir = starting_maps_dir
+        self.min_p = min_p
 
         self.population = DistrictMapCollection(env=self.env, max_size=self.starting_population_size)
-
-        self.min_p = min_p
 
     def run(self, generations):
         with self:
             if self._start_map is None:
                 self.log(f'Filling population...', verbose=1)
-                self.population.randomize()
+                self.fill_population()
             else:
                 self.population.add(self._start_map)
 
@@ -128,6 +129,24 @@ class GeneticRedistrictingAlgorithm(Algorithm):
 
             self.log(f'Simulation complete!', verbose=1)
             return fitness_scores
+
+    def fill_population(self):
+        count = sum(len(os.listdir(os.path.join(self.starting_maps_dir, dir_name)))
+                    for dir_name in os.listdir(self.starting_maps_dir))
+        start_size = count if self.starting_population_size == -1 else self.starting_population_size
+        diff = start_size - count
+        self.log(f'Found {count} maps{f", need {diff} more..." if diff > 0 else ""}', verbose=1)
+        if diff > 0:
+            save_random_maps(env=self.env, save_dir=self.starting_maps_dir, n=diff)
+        self.log(f'Loading maps from saved files...', verbose=1)
+        for dir_name in os.listdir(self.starting_maps_dir):
+            dir_path = os.path.join(self.starting_maps_dir, dir_name)
+            for file_name in os.listdir(dir_path):
+                file_path = os.path.join(dir_path, file_name)
+                district_map = DistrictMap.load(file_path, env=self.env)
+                self.population.add(district_map)
+                if self.population.is_full():
+                    return
 
     def simulate_generation(self, last=False):
         should_print = self.time_step_count % self.print_every == 0
@@ -177,7 +196,7 @@ class GeneticRedistrictingAlgorithm(Algorithm):
 
     def _mutation(self, district_map, district):
         expand_start, reduce_start = None, None
-        for _ in range(self.params['mutation_layers'].randint(scale=1, min_value=1)):
+        for _ in range(self.params.mutation_layers.randint(scale=1, min_value=1)):
             mask = district_map.mask(district)
             centroid = self.env.union_cache.calculate_union(mask).centroid
             population_pct = self.env.data['population'][mask].sum() / self.env.ideal_population
@@ -298,57 +317,3 @@ class GeneticRedistrictingAlgorithm(Algorithm):
         new = union_from_difference(previous, geometries, removals)
         a = count_polygons(new) <= count_polygons(previous)
         return a
-
-
-def main():
-    start = dt.datetime.now()
-
-    refresh = False
-    if refresh:
-        print(f'{since_start(start)} - Refreshing data...')
-        refresh_data()
-
-    print(f'{since_start(start)} - Initiating algorithm...')
-    algorithm = GeneticRedistrictingAlgorithm(
-        env=RedistrictingEnv(
-            data_path='data/pa/simplified.parquet',
-            n_districts=17,
-            live_plot=False,
-            save_data_dir='maps/data',
-            save_img_dir='maps/images',
-        ),
-        start=start,
-        verbose=1,
-        print_every=10,
-        save_every=10_000,
-        log_path='log.txt',
-        population_size=2,
-        selection_pct=0.5,
-        starting_population_size=1_000,
-        weights=DictCollection(
-            contiguity=1000,
-            population_balance=5,
-            compactness=1,
-            win_margin=-1,
-            efficiency_gap=-1,
-        ),
-        params=ParameterCollection(
-            expansion_population_bias=Parameter(-0.6, exp_factor=1),
-            reduction_population_bias=Parameter(0.6, exp_factor=1),
-            expansion_distance_bias=Parameter(-0.2, exp_factor=1),
-            reduction_distance_bias=Parameter(0.2, exp_factor=1),
-            expansion_surrounding_bias=Parameter(0.1, exp_factor=1),
-            reduction_surrounding_bias=Parameter(-0.1, exp_factor=1),
-            mutation_size=RangeParameter(0.0, 1.0, exp_factor=1 ** (1 / 20_000)),
-            mutation_layers=RangeParameter(1, 1, exp_factor=1 ** (1 / 20_000), min_value=1),
-            mutation_n=RangeParameter(1 / 17, 1 / 17, exp_factor=2 ** (1 / 10_000), max_value=34),
-        ),
-        min_p=0.1,
-    )
-
-    algorithm.set_start_map(DistrictMap.load('maps/current/pa'))
-    algorithm.run(generations=100_000)
-
-
-if __name__ == '__main__':
-    main()

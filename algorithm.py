@@ -155,5 +155,5 @@ class Algorithm:
             district_map.save(path=f'{self.env.save_data_dir}/{self.start.strftime("%Y-%m-%d-%H-%M-%S")}.pkl')
 
         save_img = self.env.save_img_dir is not None and ((self.time_step_count % self.save_every) == 0)
-        save_path = f'{self.env.save_img_dir}/{self.start.strftime("%Y-%m-%d-%H-%M-%S")}-{self.time_step_count}'
+        save_path = f'{self.env.save_img_dir}/{self.start.strftime("%Y-%m-%d-%H-%M-%S")}'
         district_map.plot(save=save_img, save_path=save_path)

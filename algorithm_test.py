@@ -4,29 +4,8 @@ import os
 
 from algorithm import Algorithm, Parameter, RangeParameter, ParameterCollection, DictCollection
 from genetic_algorithm import GeneticRedistrictingAlgorithm
-from maps import DistrictMap, DistrictMapCollection
+from maps import DistrictMap
 from redistricting_env import RedistrictingEnv
-
-
-def save_random_maps(env, weights, start_n, save_n, save_dir='maps/random-starting-points'):
-    assert start_n >= 1
-    assert save_n >= 1
-    assert start_n >= save_n
-    print(f'Generating {start_n:,} maps...')
-    collection = DistrictMapCollection(env=env, max_size=start_n)
-    collection.randomize()
-    print('Calculating fitness scores...')
-    fitness_scores, _ = collection.calculate_fitness(weights=weights)
-    print(f'Selecting best {save_n:,} maps...')
-    indices = sorted(fitness_scores, key=lambda x: fitness_scores[x], reverse=True)[:save_n]
-    selected = collection.select(indices, new_max_size=save_n)
-    print('Saving selected maps...')
-    dt_str = dt.datetime.now().strftime("%Y-%m-%d-%H-%M-%S")
-    save_dir = os.path.join(save_dir, dt_str)
-    os.mkdir(save_dir)
-    for i, map_ in enumerate(selected, 1):
-        save_path = f'{os.path.join(save_dir, str(i))}.pkl'
-        map_.save(save_path)
 
 
 class AlgorithmTest:
@@ -40,15 +19,15 @@ class AlgorithmTest:
     def run(self, generations, results_path):
         self.log(f'Starting test with {len(self.param_sets)} param sets, test_size={self.test_size}, and '
                  f'generations={generations}...')
-        results = {}
+        results_str = ''
         for value, params in self.param_sets.items():
             algorithms = [self.algorithm(**params) for _ in range(self.test_size)]
             if self.start_map_path is not None:
                 files = os.listdir(self.start_map_path)
                 assert len(files) >= self.test_size, 'Start map path does not have enough files'
-                for i, alg in enumerate(algorithms):
+                for i, algorithm in enumerate(algorithms):
                     map_ = DistrictMap.load(os.path.join(self.start_map_path, files[i]))
-                    alg.set_start_map(map_)
+                    algorithm.set_start_map(map_)
 
             self.log(f'Starting batch with value={value}...', verbose=0)
             fitness_scores, improvements = [], []
@@ -57,26 +36,27 @@ class AlgorithmTest:
                 self.log(f'({i}/{len(algorithms)}) - Fitness: {fitness_history[-1]}', verbose=0)
                 fitness_scores.append(fitness_history[-1])
                 improvements.append(fitness_history[-1] - fitness_history[0])
-            self.log(f'Batch complete!\nValue: {value} - Min Fitness: {min(fitness_scores):.4f} | '
-                     f'Avg Fitness: {sum(fitness_scores) / self.test_size:.4f} | Max Fitness: {max(fitness_scores):.4f} | '
-                     f'Min Improvement: {min(improvements):.4f} | '
-                     f'Avg Improvement: {sum(improvements) / self.test_size:.4f} | '
-                     f'Max Improvement: {max(improvements):.4f}', verbose=0)
-            results[value] = (fitness_scores, improvements)
 
-        results_str = ''
-        for i, (value, (fitness_scores, improvements)) in enumerate(results.items(), 1):
-            results_str += f'{value} - Min Fitness: {min(fitness_scores):.4f} | ' \
-                           f'Avg Fitness: {sum(fitness_scores) / self.test_size:.4f} | ' \
-                           f'Max Fitness: {max(fitness_scores):.4f} | Min Improvement: {min(improvements):.4f} | ' \
-                           f'Avg Improvement: {sum(improvements) / self.test_size:.4f} | ' \
-                           f'Max Improvement: {max(improvements):.4f}'
-            if i < len(results):
+            temp_str = f'{value} - Min Fitness: {min(fitness_scores):.4f} | ' \
+                       f'Avg Fitness: {sum(fitness_scores) / self.test_size:.4f} | ' \
+                       f'Max Fitness: {max(fitness_scores):.4f} | Min Improvement: {min(improvements):.4f} | ' \
+                       f'Avg Improvement: {sum(improvements) / self.test_size:.4f} | ' \
+                       f'Max Improvement: {max(improvements):.4f}'
+            self.log(f'Batch complete!\n{temp_str}', verbose=0)
+            results_str += temp_str
+            if value != list(self.param_sets.keys())[-1]:
                 results_str += '\n'
-        with open(results_path, 'w') as f:
-            f.write(results_str)
+            with open(results_path, 'w') as f:
+                f.write(results_str)
+
 
 def main():
+    """
+    This is for tuning parameters of the algorithm by testing different sets of values for a specific parameter that is
+    chosen to be tuned. More generations and larger test size  will produce more accurate test results to determine the
+    best parameter values.
+    """
+
     env = RedistrictingEnv(
         data_path='data/pa/simplified.parquet',
         n_districts=17,
@@ -89,13 +69,13 @@ def main():
         population_balance=5,
         compactness=1,
         win_margin=-1,
-        efficiency_gap=-1,
+        efficiency_gap=-2,
     )
     params = dict(
         env=env,
         start=dt.datetime.now(),
         verbose=1,
-        print_every=10,
+        print_every=100,
         save_every=1_000,
         log_path='log.txt',
         population_size=2,
@@ -105,11 +85,8 @@ def main():
         min_p=0.1,
     )
 
-    # save_random_maps(env=env, weights=weights, start_n=1_000, save_n=10, save_dir='maps/random-starting-points')
-    # quit()
-
     param_sets = {}
-    for value in [0.0, 0.5, 1.0]:
+    for value in [0.0, 0.05, 0.1, 0.15, 0.2, 0.25, 0.3, 0.35, 0.4]:
         params['params'] = ParameterCollection(
             expansion_population_bias=Parameter(-0.6, exp_factor=1),
             reduction_population_bias=Parameter(0.6, exp_factor=1),
@@ -119,13 +96,13 @@ def main():
             reduction_surrounding_bias=Parameter(-0.1, exp_factor=1),
             mutation_size=RangeParameter(0.0, 1.0, exp_factor=1 ** (1 / 20_000)),
             mutation_layers=RangeParameter(1, 1, exp_factor=1 ** (1 / 20_000), min_value=1),
-            mutation_n=RangeParameter(1 / 17, 1 / 17, exp_factor=1 ** (1 / 20_000), max_value=34),
+            mutation_n=RangeParameter(1 / 17, 1 / 17, exp_factor=1 ** (1 / 20_000), max_value=2),
         )
         param_sets[value] = copy.deepcopy(params)
 
     test = AlgorithmTest(algorithm=GeneticRedistrictingAlgorithm, param_sets=param_sets, test_size=10,
                          start_map_path='maps/random-starting-points/2024-01-19-12-02-39')
-    test.run(generations=300, results_path='test_results.txt')
+    test.run(generations=10, results_path='test_results.txt')
 
 
 if __name__ == '__main__':

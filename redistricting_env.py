@@ -17,13 +17,16 @@ def infer_utm_crs(data):
     return f'EPSG:{hemisphere_prefix}{zone_number:02d}'
 
 
-def refresh_data():
-    data = gpd.read_file('data/pa/vtd-election-and-census-data-14-20.shp')
+def refresh_data(data_path, simplified_path):
+    data = gpd.read_file(data_path)
     data.to_crs(infer_utm_crs(data), inplace=True)
-    data.rename(columns={'TOTPOP20': 'population', 'PRES16D': 'democrat', 'PRES16R': 'republican'}, inplace=True)
-    data = tp.Topology(data, prequantize=False).toposimplify(50).to_gdf()
-    data.geometry[~data.geometry.is_valid] = data.geometry[~data.geometry.is_valid].buffer(0)
-    data.to_parquet('data/pa/simplified.parquet')
+    data.rename(columns={'TOTPOP20': 'population', 'PL10AA_TOT': 'population',
+                         'PRES16D': 'democrat', 'EL16G_PR_D': 'democrat',
+                         'PRES16R': 'republican', 'EL16G_PR_R': 'republican',
+                         }, inplace=True)
+    # data = tp.Topology(data, prequantize=False).toposimplify(50).to_gdf()
+    # data.geometry[~data.geometry.is_valid] = data.geometry[~data.geometry.is_valid].buffer(0)
+    data.to_parquet(simplified_path)
 
 
 class RedistrictingEnv:
