@@ -5,7 +5,7 @@ import os
 import numpy as np
 from shapely.errors import GEOSException
 
-from algorithm import since_start, Algorithm, DictCollection, ParameterCollection, Parameter, RangeParameter
+from algorithm import Algorithm, ParameterCollection, Parameter, RangeParameter
 from maps import count_polygons, save_random_maps, DistrictMap, DistrictMapCollection
 
 
@@ -111,7 +111,7 @@ class GeneticRedistrictingAlgorithm(Algorithm):
         self.starting_maps_dir = starting_maps_dir
         self.min_p = min_p
 
-        self.population = DistrictMapCollection(env=self.env, max_size=self.starting_population_size)
+        self.population = None
 
     def run(self, generations):
         with self:
@@ -134,6 +134,7 @@ class GeneticRedistrictingAlgorithm(Algorithm):
         count = sum(len(os.listdir(os.path.join(self.starting_maps_dir, dir_name)))
                     for dir_name in os.listdir(self.starting_maps_dir))
         start_size = count if self.starting_population_size == -1 else self.starting_population_size
+        self.population = DistrictMapCollection(env=self.env, max_size=start_size)
         diff = start_size - count
         self.log(f'Found {count} maps{f", need {diff} more..." if diff > 0 else ""}', verbose=1)
         if diff > 0:

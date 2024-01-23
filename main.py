@@ -27,6 +27,9 @@ def compare(districts, state, name):
     districts.to_crs(infer_utm_crs(districts), inplace=True)
     centroids = gpd.GeoDataFrame(env.data, geometry=env.data.geometry.centroid)
     assignments = gpd.sjoin(centroids, districts, how='left', op='within')['index_right'].values
+    print(env.n_districts, env.n_blocks)
+    print(max(assignments), len(assignments))
+    print(assignments)
     district_map = DistrictMap(env=env, assignments=assignments)
     district_map.save(f'maps/current/{state}')
 
@@ -51,7 +54,7 @@ def main():
     start = dt.datetime.now()
 
     state = 'nc'  # 'pa'
-    districts = 7  # 17
+    districts = 14  # 17
     data_path = f'data/{state}/vtd-election-and-census.shp'
     simplified_path = f'data/{state}/simplified.parquet'
 
@@ -77,7 +80,7 @@ def main():
         log_path='log.txt',
         population_size=2,  # For all practical purpose, a population size larger will not provide valuable results
         selection_pct=0.5,  # Selects 1 from the population size of 2 and mutates that single map to generate another
-        starting_population_size=-1,  # Starts with a large population size in 0th generation and selects the best 2
+        starting_population_size=25,  # Starts with a large population size in 0th generation and selects the best 2
         # -1 indicates that all maps found in the random-starting-points directory will be used to start the population
         weights=DictCollection(
             contiguity=0,  # Contiguity is not valued because
@@ -97,7 +100,7 @@ def main():
             # additions or removals of all touching VTDs of a district
             mutation_layers=RangeParameter(1, 1, exp_factor=1 ** (1 / 20_000), min_value=1),  # More layers means
             # each mutation will include more layers of touching VTDs, allowing for larger changes
-            mutation_n=RangeParameter(1 / 17, 1 / 17, exp_factor=2 ** (1 / 10_000), max_value=2),  # Higher "n" means
+            mutation_n=RangeParameter(1 / districts, 1 / districts, exp_factor=2 ** (1 / 10_000), max_value=2),  # Higher "n" means
             # more modified districts per mutation, allowing for more complex changes
         ),
         min_p=0.1,  # Ensures that, despite heuristics, every mutation is still somewhat possible
@@ -111,4 +114,5 @@ def main():
 
 
 if __name__ == '__main__':
+    # compare(districts=14, state='nc', name='2024-01-22-22-18-52')
     main()
