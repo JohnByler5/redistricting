@@ -6,6 +6,12 @@ venv/
 models/
 maps/
 
+# Replit files
+.replit
+*.pyc
+*.nix
+*.sqlite
+
 # Other files
 log.txt
 test_results.txt
