@@ -135,7 +135,7 @@ class DistrictMap:
         districts = self.env.data[allocated].groupby(by=self.assignments[allocated])
         groups = pd.Index(districts.groups.keys())
         self.districts.loc[groups, DISTRICT_FEATURES] = districts[DISTRICT_FEATURES].sum()
-        self.districts.geometry.loc[groups] = districts.apply(
+        self.districts.loc[groups, 'geometry'] = districts.apply(
             lambda group: self.env.union_cache.calculate_union(mask=self.assignments == group.name, geometries=group)
         )
 
