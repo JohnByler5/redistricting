@@ -3,7 +3,7 @@
 venv/
 
 # Results
-maps/*/*
+maps/*.pkl
 
 # Replit files
 .replit
