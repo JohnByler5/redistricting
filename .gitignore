@@ -3,7 +3,11 @@
 venv/
 
 # Results
-maps/*.pkl
+maps/current/*
+maps/random-starting-points/nc/*
+maps/random-starting-points/pa/*
+maps/solutions/nc/*
+maps/solutions/pa/*
 
 # Replit files
 .replit
