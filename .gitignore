@@ -2,9 +2,8 @@
 .idea/
 venv/
 
-# Models and results
-models/
-maps/
+# Results
+maps/*/*
 
 # Replit files
 .replit
