@@ -351,7 +351,7 @@ class DistrictMap:
             unions = geometries.groupby(assignments).apply(unary_union).reset_index(drop=True)
             unions.crs = self.env.data.crs
             try:
-                self.districts.geometry.loc[unique] = f(unions).values
+                self.districts.loc[unique, 'geometry'] = f(unions).values
             except shapely.errors.GEOSException:
                 self.construct_districts()
                 break
