@@ -11,6 +11,7 @@ venv/
 # Build files
 build/*
 dist/*
+main.spec
 
 # Results
 maps/current/*
