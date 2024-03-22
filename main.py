@@ -23,7 +23,7 @@ def compare(districts, state, name):
     env = RedistrictingEnv(f'data/{state}/simplified.parquet', n_districts=districts, live_plot=False,
                            save_img_dir='maps')
     districts = gpd.read_file(f'data/{state}/current-boundaries.shp')
-    solution = DistrictMap.load(f'maps/data/{state}/{name}.pkl')
+    solution = DistrictMap.load(f'maps/solutions/{state}/{name}.pkl')
     districts.to_crs(infer_utm_crs(districts), inplace=True)
     centroids = gpd.GeoDataFrame(env.data, geometry=env.data.geometry.centroid)
     assignments = gpd.sjoin(centroids, districts, how='left', op='within')['index_right'].values
@@ -69,7 +69,7 @@ def main():
             data_path=simplified_path,
             n_districts=districts,
             live_plot=False,
-            save_data_dir=f'maps/data/{state}',
+            save_data_dir=f'maps/solutions/{state}',
             save_img_dir=None,
         ),
         starting_maps_dir=f'maps/random-starting-points/{state}',
