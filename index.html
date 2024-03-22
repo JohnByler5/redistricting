@@ -1,0 +1,20 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Start Algorithm</title>
+    <script>
+        async function startAlgorithm() {
+            const response = await fetch('/start-algorithm', {
+                method: 'POST',
+            });
+            const data = await response.json();
+            alert(data.message);
+        }
+    </script>
+</head>
+<body>
+    <button onclick="startAlgorithm()">Start Algorithm</button>
+</body>
+</html>
