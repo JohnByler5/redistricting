@@ -23,15 +23,14 @@ def compare(districts, state, name):
     env = RedistrictingEnv(f'data/{state}/simplified.parquet', n_districts=districts, live_plot=False,
                            save_img_dir='maps')
     districts = gpd.read_file(f'data/{state}/current-boundaries.shp')
-    solution = DistrictMap.load(f'maps/data/{state}/{name}.pkl')
+    solution = DistrictMap.load(f'maps/solutions/{state}/{name}.pkl')
+    solution.plot(save_path=f'maps/images/{state}-solution.png')
     districts.to_crs(infer_utm_crs(districts), inplace=True)
     centroids = gpd.GeoDataFrame(env.data, geometry=env.data.geometry.centroid)
     assignments = gpd.sjoin(centroids, districts, how='left', op='within')['index_right'].values
-    print(env.n_districts, env.n_blocks)
-    print(max(assignments), len(assignments))
-    print(assignments)
     district_map = DistrictMap(env=env, assignments=assignments)
-    district_map.save(f'maps/current/{state}')
+    district_map.save(f'maps/current/{state}.pkl')
+    district_map.plot(save_path=f'maps/images/current-{state}-districts.png')
 
     weights = DictCollection(
         contiguity=0,
@@ -69,7 +68,7 @@ def main():
             data_path=simplified_path,
             n_districts=districts,
             live_plot=False,
-            save_data_dir=f'maps/data/{state}',
+            save_data_dir=f'maps/solutions/{state}',
             save_img_dir=None,
         ),
         starting_maps_dir=f'maps/random-starting-points/{state}',
@@ -114,5 +113,5 @@ def main():
 
 
 if __name__ == '__main__':
-    # compare(districts=14, state='nc', name='2024-01-22-22-18-52')
+    # compare(districts=14, state='nc', name='2024-01-22-22-35-35')
     main()
