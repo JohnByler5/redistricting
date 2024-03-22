@@ -2,18 +2,22 @@
 .idea/
 venv/
 
+# Replit files
+.replit
+*.pyc
+*.nix
+*.sqlite
+
+# Build files
+build/*
+dist/*
+
 # Results
 maps/current/*
 maps/random-starting-points/nc/*
 maps/random-starting-points/pa/*
 maps/solutions/nc/*
 maps/solutions/pa/*
-
-# Replit files
-.replit
-*.pyc
-*.nix
-*.sqlite
 
 # Other files
 log.txt
