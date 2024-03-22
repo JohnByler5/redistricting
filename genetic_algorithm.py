@@ -146,8 +146,8 @@ class GeneticRedistrictingAlgorithm(Algorithm):
         diff = start_size - count
         self.log(f'Found {count} maps{f", need {diff} more..." if diff > 0 else ""}', verbose=1)
         if diff > 0:
-            save_random_maps(env=self.env, save_dir=self.starting_maps_dir, n=diff)
-        self.log(f'Loading maps from saved files...', verbose=1)
+            save_random_maps(env=self.env, save_dir=self.starting_maps_dir, n=diff, start=self.start)
+        self.log('Loading maps from saved files...', verbose=1)
         for dir_name in os.listdir(self.starting_maps_dir):
             dir_path = os.path.join(self.starting_maps_dir, dir_name)
             for file_name in os.listdir(dir_path):

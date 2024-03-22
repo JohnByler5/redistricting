@@ -17,7 +17,7 @@ class Parameter:
     """Class that allows ease of use for many useful functions in the algorithms, such as changing the parameter
      values over time and limiting those to certain minimum and maximum values."""
 
-    def __init__(self, start_value, exp_factor=1, min_value=-np.inf, max_value=np.inf):
+    def __init__(self, start_value, exp_factor=1.0, min_value=-np.inf, max_value=np.inf):
         assert is_number(start_value)
         assert is_number(exp_factor) and exp_factor > 0
         assert is_number(min_value) and min_value <= start_value
