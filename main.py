@@ -26,7 +26,7 @@ def compare(districts, state, name):
     solution = DistrictMap.load(f'maps/solutions/{state}/{name}.pkl')
     districts.to_crs(infer_utm_crs(districts), inplace=True)
     centroids = gpd.GeoDataFrame(env.data, geometry=env.data.geometry.centroid)
-    assignments = gpd.sjoin(centroids, districts, how='left', op='within')['index_right'].values
+    assignments = gpd.sjoin(centroids, districts, how='left', predicate='within')['index_right'].values
     print(env.n_districts, env.n_blocks)
     print(max(assignments), len(assignments))
     print(assignments)
@@ -53,8 +53,8 @@ def compare(districts, state, name):
 def main():
     start = dt.datetime.now()
 
-    state = 'nc'  # 'pa'
-    districts = 14  # 17
+    state = 'pa'  # 'nc'
+    districts = 17  # 14
     data_path = f'data/{state}/vtd-election-and-census.shp'
     simplified_path = f'data/{state}/simplified.parquet'
 
@@ -78,7 +78,7 @@ def main():
         print_every=10,  # How often to log and print updates on the progress
         save_every=100,  # How often to save progress
         log_path='log.txt',
-        population_size=2,  # For all practical purpose, a population size larger will not provide valuable results
+        population_size=2,  # For all practical purpose, a large population size will not provide valuable results
         selection_pct=0.5,  # Selects 1 from the population size of 2 and mutates that single map to generate another
         starting_population_size=25,  # Starts with a large population size in 0th generation and selects the best 2
         # -1 indicates that all maps found in the random-starting-points directory will be used to start the population
@@ -114,5 +114,5 @@ def main():
 
 
 if __name__ == '__main__':
-    # compare(districts=14, state='nc', name='2024-01-22-22-18-52')
+    # compare(districts=17, state='pa', name='2024-03-22-03-16-37')
     main()
