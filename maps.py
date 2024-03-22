@@ -30,7 +30,7 @@ def count_polygons(geometry):
 
 
 def save_random_maps(env, save_dir, n=None, save_n=None, weights=None, balance_population=True,
-                     balance_contiguity=True):
+                     balance_contiguity=True, start=dt.datetime.now()):
     """Generates random DistrictMap instances and saves them to a folder for use in an algorithm."""
 
     if n is None:
@@ -41,7 +41,6 @@ def save_random_maps(env, save_dir, n=None, save_n=None, weights=None, balance_p
     assert 1 <= save_n <= n
     assert save_n >= n or weights is not None
 
-    start = dt.datetime.now()
     dt_str = start.strftime("%Y-%m-%d-%H-%M-%S")
     save_dir = os.path.join(save_dir, dt_str)
     os.mkdir(save_dir)
