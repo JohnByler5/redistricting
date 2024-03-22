@@ -1,4 +1,5 @@
 import geopandas as gpd
+import matplotlib
 import matplotlib.pyplot as plt
 import numpy as np
 import topojson as tp
@@ -63,4 +64,7 @@ class RedistrictingEnv:
         self.live_plot = live_plot
         self.save_data_dir = save_data_dir
         self.save_img_dir = save_img_dir
+
+        if not live_plot:
+            matplotlib.use('agg')
         self.fig, self.ax = plt.subplots(figsize=(10, 10))
