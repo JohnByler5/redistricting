@@ -13,13 +13,6 @@ build/*
 dist/*
 main.spec
 
-# Results
-maps/current/*
-maps/random-starting-points/nc/*
-maps/random-starting-points/pa/*
-maps/solutions/nc/*
-maps/solutions/pa/*
-
 # Other files
 log.txt
 test_results.txt

@@ -113,18 +113,15 @@ class DistrictMap:
         return DistrictMap(env=self.env, assignments=self.assignments.copy(), districts=copy.deepcopy(self.districts))
 
     def save(self, path):
-        """Saves DistrictMap instance to a pickle file."""
+        """Saves DistrictMap instance (assignments only) to a pickle file."""
         with open(path, 'wb') as f:
-            pickle.dump(self, f)
+            pickle.dump(self.assignments, f)
 
     @classmethod
-    def load(cls, path, env=None):
-        """Loads DistrictMap instance from a saved pickle file."""
+    def load(cls, path, env):
+        """Loads DistrictMap instance (assignments only) from a saved pickle file."""
         with open(path, 'rb') as f:
-            obj = pickle.load(f)
-            if env is not None:
-                obj.env = env
-            return obj
+            return cls(env=env, assignments=pickle.load(f))
 
     def construct_districts(self):
         """Constructs the district geometries and aggragated data for the current assignments of VTDs."""
