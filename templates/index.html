@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Congressional Redistricting Algorithm</title>
+    <title>Genetic Congressional Redistricting</title>
     <link href="https://fonts.googleapis.com/css2?family=Open+Sans:wght@400;600&display=swap" rel="stylesheet">
     <style>
         body {
@@ -16,33 +16,39 @@
         .header {
             background-color: #333;
             color: #fff;
-            padding: 0px 20px;
+            padding: 0px 40px;
             display: flex;
             justify-content: space-between;
             align-items: center;
         }
-        .header a {
+        .nav a {
+            margin: 0px 20px;
             color: #fff;
+            font-size: 18px;
             text-decoration: none;
-            margin: 0px 30px;
-        }
-        .header h1 {
-            color: #8CD3FF; /* Light Blue */
         }
         .container {
             text-align: center;
             padding: 20px;
         }
+        .box {
+            background-color: #E4E4E4;
+            padding: 10px;
+            border: 1px solid #ccc;
+            border-radius: 16px;
+            box-sizing: border-box;
+        }
         .parameter-container {
             width: 60%;
-            margin: 0% 20%;
+            margin: 30px 20% 0% 20%;
             font-size: 16px;
             text-align: left;
-            border: 1px solid #ccc;
-            padding: 10px;
-            border-radius: 8px;
-            margin-top: 30px;
-            box-sizing: border-box;
+            padding: 20px 30px;
+        }
+        .flex-between {
+            display: flex;
+            flex-direction: row;
+            justify-content: space-between;
         }
         .parameter-container h2 {
             margin: 0px 0px;
@@ -65,64 +71,74 @@
             flex-grow: 1; /* Allows the container to grow and fill the available space */
             align-items: center;
         }
-        .parameter input[type="range"] {
+        .slider-container input[type="range"] {
             flex-grow: 1; /* Allows the slider to grow and fill the available space */
             margin: 0 10px;
         }
-        .parameter span {
+        .slider-container span {
             width: 80px;
-            text-align: center;
-        }
-        .time-elapsed {
-            margin-top: 30px;
+            text-align: left;
         }
         button {
             background-color: #007bff;
             color: #fff;
             border: none;
             padding: 10px 20px;
-            font-size: 24px;
-            border-radius: 50vh 50vh;
+            font-size: 16px;
+            border-radius: 1lh;
             cursor: pointer;
-            margin: 50px 0;
         }
-        .start-running {
+        #start-running, #stop-running {
+            display: inline;
             width: 120px;
             height: 50px;
+            font-size: 24px;
+            margin: 60px 0;
+        }
+        #start-running {
             background-color: #4CAF50; /* Green */
         }
-        .stop-running {
+        #stop-running {
             background-color: #ff4d4d; /* Red */
             display: none;
+        }
+        .run-state {
+            width: fit-content;
+            margin: 50px auto;
+            font-size: 18px;
+            padding: 10px 15px;
         }
         .map-container {
             display: flex;
             justify-content: space-around;
-            margin-top: 20px;
         }
         .image-container {
-            width: 40%;
+            width: 45%;
         }
         img {
             border-radius: 8px;
             max-width: 100%;
         }
         .stats-container {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+            gap: 5px 40px;
             min-width: 40%;
             font-size: 16px;
             text-align: left;
-            border: 1px solid #ccc;
-            padding: 10px;
-            border-radius: 8px;
-            margin-top: 10px;
-            box-sizing: border-box;
+            padding: 5px 10px;
+            margin: 10px 10px 0px 10px;
         }
-        .stats-container p {
-            margin: 5px;
+        .stat {
+            display: flex;
+            flex-direction: row;
+            align-items: center;
+            gap: 5px;
+            justify-content: space-between;
         }
         .footer {
             text-align: center;
-            margin-top: 40px;
+            margin-top: 60px;
             padding: 20px;
             background-color: #f0f0f0;
         }
@@ -134,13 +150,19 @@
 </head>
 <body>
     <div class="header">
-        <a href="#">Home</a>
-        <h1>Genetic Congressional Redistricting</h1>
-        <a href="#">About</a>
+        <h2>Genetic Congressional Redistricting</h2>
+        <div class="nav">
+            <a href="https://github.com/JohnByler5/redistricting" target=”_blank”>GitHub</a>
+            <a href="https://replit.com/@JohnByler/Genetic-Congressional-Redistricting?v=1" target=”_blank”>Replit</a>
+            <a href="https://johnbyler.dev" target=”_blank”>Me</a>
+        </div>
     </div>
     <div class="container">
-        <div class="parameter-container">
-            <h2>Parameters</h2>
+        <div class="parameter-container box">
+            <div class="flex-between">
+                <h2>Parameters</h2>
+                <button onclick="resetParameters()">Reset</button>
+            </div>
             <h3>Setup</h3>
             <div class="parameter">
                 <label for="state-select">State:</label>
@@ -186,7 +208,7 @@
                 </div>
             </div>
             <div class="parameter">
-                <label for="pop-balance-slider">Population Balance:</label>
+                <label for="pop-balance-slider">Pop Balance:</label>
                 <div class="slider-container">
                     <input type="range" id="pop-balance-slider" min="-10" max="10" value="-5">
                     <span id="pop-balance-value">-5</span>
@@ -214,51 +236,103 @@
                 </div>
             </div>
         </div>
-        <button onclick="toggleButtons()" class="start-running">Start</button>
-        <button onclick="toggleButtons()" class="stop-running">Stop</button>
-        <div class="time-elapsed">Time Elapsed: 00:00:00</div>
+        <button onclick="toggleButtons()" id="start-running">Start</button>
+        <button onclick="toggleButtons()" id="stop-running">Stop</button>
+        <div class="run-state box">
+            <span>Time Elapsed: &nbsp;</span>
+            <span id="time">00:00:00</span>
+            <span> &nbsp;&nbsp;|&nbsp;&nbsp; Generation: &nbsp;</span>
+            <span id="generation">0</span>
+        </div>
         <div class="map-container">
-            <div class="image-container">
+            <div class="image-container box">
                 <h2>Current Map</h2>
                 <img src="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 50'%3E%3Crect width='100' height='50' fill='black'/%3E%3C/svg%3E" alt="Current Map" />
                 <div class="stats-container">
-                    <p>Fitness: 0.0 &nbsp;&nbsp;|&nbsp;&nbsp; Contiguity: 100.0% &nbsp;&nbsp;|&nbsp;&nbsp; Population Balance: 100.0% &nbsp;&nbsp;|&nbsp;&nbsp; Compactness: 100.0% &nbsp;&nbsp;|&nbsp;&nbsp; Win Margin: 100.0% &nbsp;&nbsp;|&nbsp;&nbsp; Efficiency Gap: 100.0%</p>
+                    <div class="stat">
+                        <div class="label">Fitness:</div>
+                        <div class="value">0.0</div>
+                    </div>
+                    <div class="stat">
+                        <div class="label">Pop Balance:</div>
+                        <div class="value">100.0%</div>
+                    </div>
+                    <div class="stat">
+                        <div class="label">Win Margin:</div>
+                        <div class="value">100.0%</div>
+                    </div>
+                    <div class="stat">
+                        <div class="label">Contiguity:</div>
+                        <div class="value">100.0%</div>
+                    </div>
+                    <div class="stat">
+                        <div class="label">Compactness:</div>
+                        <div class="value">100.0%</div>
+                    </div>
+                    <div class="stat">
+                        <div class="label">Efficiency Gap:</div>
+                        <div class="value">100.0%</div>
+                    </div>
                 </div>
             </div>
-            <div class="image-container">
+            <div class="image-container box">
                 <h2>Solution Map</h2>
                 <img src="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 50'%3E%3Crect width='100' height='50' fill='black'/%3E%3C/svg%3E" alt="Solution Map" />
                 <div class="stats-container">
-                    <p>Fitness: 0.0 &nbsp;&nbsp;|&nbsp;&nbsp; Contiguity: 100.0% &nbsp;&nbsp;|&nbsp;&nbsp; Population Balance: 100.0% &nbsp;&nbsp;|&nbsp;&nbsp; Compactness: 100.0% &nbsp;&nbsp;|&nbsp;&nbsp; Win Margin: 100.0% &nbsp;&nbsp;|&nbsp;&nbsp; Efficiency Gap: 100.0%</p>
+                    <div class="stat">
+                        <div class="label">Fitness:</div>
+                        <div class="value">0.0</div>
+                    </div>
+                    <div class="stat">
+                        <div class="label">Pop Balance:</div>
+                        <div class="value">100.0%</div>
+                    </div>
+                    <div class="stat">
+                        <div class="label">Win Margin:</div>
+                        <div class="value">100.0%</div>
+                    </div>
+                    <div class="stat">
+                        <div class="label">Contiguity:</div>
+                        <div class="value">100.0%</div>
+                    </div>
+                    <div class="stat">
+                        <div class="label">Compactness:</div>
+                        <div class="value">100.0%</div>
+                    </div>
+                    <div class="stat">
+                        <div class="label">Efficiency Gap:</div>
+                        <div class="value">100.0%</div>
+                    </div>
                 </div>
             </div>
         </div>
     </div>
     <div class="footer">
-        Made by <a href="https://johnbyler.dev">John Byler</a>, with passion.
+        Made by <a href="https://johnbyler.dev" target=”_blank”>John Byler</a>, with passion.
     </div>
 
     <script>
         function toggleButtons() {
             var start = document.getElementById("start-running");
             var stop = document.getElementById("stop-running");
-            var timeElapsed = document.getElementById("time-elapsed");
-
-            start.style.display = start.style.display === "none" ? "block" : "none";
-            stop.style.display = start.style.display === "none" ? "none" : "block";
-            timeElapsed.style.display = start.style.display === "none" ? "none" : "block";
-
-            if (stop.style.display === "none") {
+            if (start.style.display === "none") {
+                start.style.display = "inline";
+                stop.style.display = "none";
+            } else {
+                start.style.display = "none";
+                stop.style.display = "inline";
                 window.scrollTo({
-                  top: start.offsetTop - 40,
+                  top: document.getElementById("time").offsetTop - 50,
                   left: 0,
                   behavior: 'smooth' // Optional: Adds a smooth scrolling effect
                 });
             }
         }
+
         function start() {
             // Placeholder for starting the algorithm
         }
+
         function stop() {
             // Placeholder for stopping the algorithm
         }

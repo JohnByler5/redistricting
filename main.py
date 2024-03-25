@@ -28,7 +28,7 @@ def compare(districts, state, name):
     centroids = gpd.GeoDataFrame(env.data, geometry=env.data.geometry.centroid)
     assignments = gpd.sjoin(centroids, districts, how='left', predicate='within')['index_right'].values
     district_map = DistrictMap(env=env, assignments=assignments)
-    district_map.save(f'maps/current/{state}')
+    district_map.save(f'maps/current/{state}.pkl')
 
     weights = DictCollection(
         contiguity=0,
@@ -50,7 +50,7 @@ def compare(districts, state, name):
 def main():
     start = dt.datetime.now()
 
-    state = 'pa'  # 'nc'
+    state = 'pa.pkl'  # 'nc'
     districts = 17  # 14
     data_path = f'data/{state}/vtd-election-and-census.shp'
     simplified_path = f'data/{state}/simplified.parquet'
@@ -111,5 +111,5 @@ def main():
 
 
 if __name__ == '__main__':
-    # compare(districts=17, state='pa', name='2024-03-22-03-16-37')
+    # compare(districts=17, state='pa.pkl', name='2024-03-22-03-16-37')
     main()
