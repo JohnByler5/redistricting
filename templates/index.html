@@ -3,18 +3,265 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Start Algorithm</title>
-    <script>
-        async function startAlgorithm() {
-            const response = await fetch('/start-algorithm', {
-                method: 'POST',
-            });
-            const data = await response.json();
-            alert(data.message);
+    <title>Congressional Redistricting Algorithm</title>
+    <link href="https://fonts.googleapis.com/css2?family=Open+Sans:wght@400;600&display=swap" rel="stylesheet">
+    <style>
+        body {
+            font-family: 'Open Sans', sans-serif;
+            background-color: #f5f5f5;
+            margin: 0;
+            padding: 0;
+            color: #333;
         }
-    </script>
+        .header {
+            background-color: #333;
+            color: #fff;
+            padding: 0px 20px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        .header a {
+            color: #fff;
+            text-decoration: none;
+            margin: 0px 30px;
+        }
+        .header h1 {
+            color: #8CD3FF; /* Light Blue */
+        }
+        .container {
+            text-align: center;
+            padding: 20px;
+        }
+        .parameter-container {
+            width: 60%;
+            margin: 0% 20%;
+            font-size: 16px;
+            text-align: left;
+            border: 1px solid #ccc;
+            padding: 10px;
+            border-radius: 8px;
+            margin-top: 30px;
+            box-sizing: border-box;
+        }
+        .parameter-container h2 {
+            margin: 0px 0px;
+        }
+        .parameter-container h3 {
+            margin: 30px 0px 15px 0px;
+        }
+        .parameter {
+            display: flex;
+            align-items: center;
+            margin: 10px 0;
+        }
+        .parameter label {
+            flex-basis: 25%; /* Adjust this value as needed to fit your layout */
+            text-align: left;
+            margin-right: 10px;
+        }
+        .slider-container {
+            display: flex;
+            flex-grow: 1; /* Allows the container to grow and fill the available space */
+            align-items: center;
+        }
+        .parameter input[type="range"] {
+            flex-grow: 1; /* Allows the slider to grow and fill the available space */
+            margin: 0 10px;
+        }
+        .parameter span {
+            width: 80px;
+            text-align: center;
+        }
+        .time-elapsed {
+            margin-top: 30px;
+        }
+        button {
+            background-color: #007bff;
+            color: #fff;
+            border: none;
+            padding: 10px 20px;
+            font-size: 24px;
+            border-radius: 50vh 50vh;
+            cursor: pointer;
+            margin: 50px 0;
+        }
+        .start-running {
+            width: 120px;
+            height: 50px;
+            background-color: #4CAF50; /* Green */
+        }
+        .stop-running {
+            background-color: #ff4d4d; /* Red */
+            display: none;
+        }
+        .map-container {
+            display: flex;
+            justify-content: space-around;
+            margin-top: 20px;
+        }
+        .image-container {
+            width: 40%;
+        }
+        img {
+            border-radius: 8px;
+            max-width: 100%;
+        }
+        .stats-container {
+            min-width: 40%;
+            font-size: 16px;
+            text-align: left;
+            border: 1px solid #ccc;
+            padding: 10px;
+            border-radius: 8px;
+            margin-top: 10px;
+            box-sizing: border-box;
+        }
+        .stats-container p {
+            margin: 5px;
+        }
+        .footer {
+            text-align: center;
+            margin-top: 40px;
+            padding: 20px;
+            background-color: #f0f0f0;
+        }
+        .footer a {
+            color: #007bff;
+            text-decoration: none;
+        }
+    </style>
 </head>
 <body>
-    <button onclick="startAlgorithm()">Start Algorithm</button>
+    <div class="header">
+        <a href="#">Home</a>
+        <h1>Genetic Congressional Redistricting</h1>
+        <a href="#">About</a>
+    </div>
+    <div class="container">
+        <div class="parameter-container">
+            <h2>Parameters</h2>
+            <h3>Setup</h3>
+            <div class="parameter">
+                <label for="state-select">State:</label>
+                <select id="state-select">
+                    <option value="PA">PA</option>
+                    <option value="NC">NC</option>
+                </select>
+            </div>
+            <div class="parameter">
+                <label for="generation-slider">Generations:</label>
+                <div class="slider-container">
+                    <input type="range" id="generation-slider" min="10000" max="250000" step="10000" value="100000">
+                    <span id="generation-value">100,000</span>
+                </div>
+            </div>
+            <div class="parameter">
+                <label for="population-slider">Population Size:</label>
+                <div class="slider-container">
+                    <input type="range" id="population-slider" min="2" max="20" value="2">
+                    <span id="population-value">2</span>
+                </div>
+            </div>
+            <div class="parameter">
+                <label for="starting-population-slider">Initial Random Maps:</label>
+                <div class="slider-container">
+                    <input type="range" id="starting-population-slider" min="5" max="50" step="5" value="25">
+                    <span id="starting-population-value">25</span>
+                </div>
+            </div>
+            <div class="parameter">
+                <label for="population-selection-slider">Population Selection %:</label>
+                <div class="slider-container">
+                    <input type="range" id="population-selection-slider" min="0" max="100" step="5" value="50">
+                    <span id="population-selection-value">50%</span>
+                </div>
+            </div>
+            <h3>Weights</h3>
+            <div class="parameter">
+                <label for="contiguity-slider">Contiguity:</label>
+                <div class="slider-container">
+                    <input type="range" id="contiguity-slider" min="-10" max="10" value="0">
+                    <span id="contiguity-value">0</span>
+                </div>
+            </div>
+            <div class="parameter">
+                <label for="pop-balance-slider">Population Balance:</label>
+                <div class="slider-container">
+                    <input type="range" id="pop-balance-slider" min="-10" max="10" value="-5">
+                    <span id="pop-balance-value">-5</span>
+                </div>
+            </div>
+            <div class="parameter">
+                <label for="compactness-slider">Compactness:</label>
+                <div class="slider-container">
+                    <input type="range" id="compactness-slider" min="-10" max="10" value="1">
+                    <span id="compactness-value">1</span>
+                </div>
+            </div>
+            <div class="parameter">
+                <label for="win-margin-slider">Win Margin:</label>
+                <div class="slider-container">
+                    <input type="range" id="win-margin-slider" min="-10" max="10" value="-1">
+                    <span id="win-margin-value">-1</span>
+                </div>
+            </div>
+            <div class="parameter">
+                <label for="efficiency-gap-slider">Efficiency Gap:</label>
+                <div class="slider-container">
+                    <input type="range" id="efficiency-gap-slider" min="-10" max="10" value="-1">
+                    <span id="efficiency-gap-value">-1</span>
+                </div>
+            </div>
+        </div>
+        <button onclick="toggleButtons()" class="start-running">Start</button>
+        <button onclick="toggleButtons()" class="stop-running">Stop</button>
+        <div class="time-elapsed">Time Elapsed: 00:00:00</div>
+        <div class="map-container">
+            <div class="image-container">
+                <h2>Current Map</h2>
+                <img src="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 50'%3E%3Crect width='100' height='50' fill='black'/%3E%3C/svg%3E" alt="Current Map" />
+                <div class="stats-container">
+                    <p>Fitness: 0.0 &nbsp;&nbsp;|&nbsp;&nbsp; Contiguity: 100.0% &nbsp;&nbsp;|&nbsp;&nbsp; Population Balance: 100.0% &nbsp;&nbsp;|&nbsp;&nbsp; Compactness: 100.0% &nbsp;&nbsp;|&nbsp;&nbsp; Win Margin: 100.0% &nbsp;&nbsp;|&nbsp;&nbsp; Efficiency Gap: 100.0%</p>
+                </div>
+            </div>
+            <div class="image-container">
+                <h2>Solution Map</h2>
+                <img src="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 50'%3E%3Crect width='100' height='50' fill='black'/%3E%3C/svg%3E" alt="Solution Map" />
+                <div class="stats-container">
+                    <p>Fitness: 0.0 &nbsp;&nbsp;|&nbsp;&nbsp; Contiguity: 100.0% &nbsp;&nbsp;|&nbsp;&nbsp; Population Balance: 100.0% &nbsp;&nbsp;|&nbsp;&nbsp; Compactness: 100.0% &nbsp;&nbsp;|&nbsp;&nbsp; Win Margin: 100.0% &nbsp;&nbsp;|&nbsp;&nbsp; Efficiency Gap: 100.0%</p>
+                </div>
+            </div>
+        </div>
+    </div>
+    <div class="footer">
+        Made by <a href="https://johnbyler.dev">John Byler</a>, with passion.
+    </div>
+
+    <script>
+        function toggleButtons() {
+            var start = document.getElementById("start-running");
+            var stop = document.getElementById("stop-running");
+            var timeElapsed = document.getElementById("time-elapsed");
+
+            start.style.display = start.style.display === "none" ? "block" : "none";
+            stop.style.display = start.style.display === "none" ? "none" : "block";
+            timeElapsed.style.display = start.style.display === "none" ? "none" : "block";
+
+            if (stop.style.display === "none") {
+                window.scrollTo({
+                  top: start.offsetTop - 40,
+                  left: 0,
+                  behavior: 'smooth' // Optional: Adds a smooth scrolling effect
+                });
+            }
+        }
+        function start() {
+            // Placeholder for starting the algorithm
+        }
+        function stop() {
+            // Placeholder for stopping the algorithm
+        }
+    </script>
 </body>
 </html>
