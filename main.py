@@ -104,7 +104,7 @@ def main(event_loop=None, queue=None):
     for update in algorithm.run(generations=100_000):
         put(update)
 
-    put('DONE')  # Indicate it is done
+    put('OPERATION_COMPLETE')  # Indicate it is done
 
     # Compare the current in place map to the new solution
     # compare(districts=districts, state=state, name=algorithm.start.strftime("%Y-%m-%d-%H-%M-%S"))

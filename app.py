@@ -59,32 +59,40 @@ async def ws():
 
         last = None
         while True:
-            await asyncio.sleep(1.0)
-            if 'user_id' in users:
+            await asyncio.sleep(0.5)
+
+            results = await get_results('user_id')  # TODO: Actually implement user IDs
+            if results is None:
+                continue
+            if results == 'OPERATION_COMPLETE':
+                # Algorithm is finished
                 async with lock:
-                    _, q = users['user_id']  # TODO: Actually implement user IDs
-                results = None
-                # Clear the queue and get the last item
-                print('Getting')
-                while not q.empty():
-                    results = await q.get()
-                    q.task_done()
-                if results is None:
-                    continue
-                print('Got')
-                if results == 'DONE':
-                    # Thread is finished
-                    async with lock:
-                        users.pop('user_id')
-                    break
-                if results == last:
-                    continue
-                last = copy.deepcopy(results)
-                for key in ['currentMap', 'solutionMap']:
-                    filename = results[key]['imageUrl'][results[key]['imageUrl'].rindex('/') + 1:]
-                    results[key]['imageUrl'] = url_for('images', filename=filename, _external=True)
-                await websocket.send(json.dumps(results))
-                print('Sent')
+                    users.pop('user_id')
+                break
+
+            if results == last:
+                continue
+            last = copy.deepcopy(results)
+
+            for key in ['currentMap', 'solutionMap']:
+                filename = results[key]['imageUrl'][results[key]['imageUrl'].rindex('/') + 1:]
+                results[key]['imageUrl'] = url_for('images', filename=filename, _external=True)
+            await websocket.send(json.dumps(results))
+
+
+async def get_results(user_id):
+    global users
+
+    results = None
+    async with lock:
+        if user_id in users:
+            _, q = users[user_id]
+        # Clear the queue and get the last item
+        while not q.empty():
+            results = await q.get()
+            q.task_done()
+
+    return results
 
 
 if __name__ == "__main__":
