@@ -131,11 +131,11 @@ class GeneticRedistrictingAlgorithm(Algorithm):
             self.log(f'Simulating for {generations:,} generations...', verbose=1)
             fitness_scores = []
             for generation in range(generations + 1):
-                fitness = self.simulate_generation(last=generation == generations)
+                fitness, update = self.simulate_generation(last=generation == generations)
+                yield update
                 fitness_scores.append(fitness)
 
             self.log(f'Simulation complete!', verbose=1)
-            return fitness_scores
 
     def fill_population(self):
         """Fills the currently empty population with random maps to begin the algorithm."""
@@ -172,13 +172,13 @@ class GeneticRedistrictingAlgorithm(Algorithm):
         self.log(f'Generation: {self.time_step_count:,} - {" | ".join(metric_str for metric_str in metric_strs)}',
                  verbose=1 if should_print else None)
 
-        self._tick(selected[0])
+        update = self._tick(selected[0], selected_metrics[0])
         if not last:
             self.log(f'Generation: {self.time_step_count:,} - Mutating for new generation...',
                      verbose=2 if should_print else None)
             self.population = self._mutate(selected)
 
-        return max(fitness_scores.values())
+        return max(fitness_scores.values()), update
 
     def select(self, fitness_scores, metrics):
         """Selects district maps from the population to mutate based on fitness scores."""

@@ -1,3 +1,4 @@
+import asyncio
 import datetime as dt
 
 import geopandas as gpd
@@ -8,27 +9,17 @@ from maps import DistrictMap
 from redistricting_env import refresh_data, RedistrictingEnv, infer_utm_crs
 
 
-def calculate_fitness(district_map, weights):
-    score = 0
-    metrics = {'fitness': '0'}
-    for metric, weight in weights.items():
-        result = getattr(district_map, f'calculate_{metric}')()
-        score += result * weight
-        metrics[metric] = f'{result:.4%}'
-    metrics['fitness'] = f'{score:.4f}'
-    return score, metrics
-
-
 def compare(districts, state, name):
-    env = RedistrictingEnv(f'data/{state}/simplified.parquet', n_districts=districts, live_plot=False,
+    env = RedistrictingEnv(f'data/{state}/simplified.parquet', state=state, n_districts=districts, live_plot=False,
                            save_img_dir='maps')
     districts = gpd.read_file(f'data/{state}/current-boundaries.shp')
-    solution = DistrictMap.load(f'maps/solutions/{state}/{name}.pkl', env=env)
+    solution = DistrictMap.load(f'maps/solutions/{state}/{name}', env=env)
     districts.to_crs(infer_utm_crs(districts), inplace=True)
     centroids = gpd.GeoDataFrame(env.data, geometry=env.data.geometry.centroid)
     assignments = gpd.sjoin(centroids, districts, how='left', predicate='within')['index_right'].values
     district_map = DistrictMap(env=env, assignments=assignments)
     district_map.save(f'maps/current/{state}.pkl')
+    district_map.plot(f'maps/images/current-{state}-districts.png')
 
     weights = DictCollection(
         contiguity=0,
@@ -38,19 +29,19 @@ def compare(districts, state, name):
         efficiency_gap=-1,
     )
 
-    score, metrics = calculate_fitness(district_map, weights)
+    score, metrics = district_map.calculate_fitness(weights)
     metric_strs = [f'{" ".join(key.title().split("_"))}: {value}' for key, value in metrics.items()]
     print(f'Current District Metrics: {" | ".join(metric_str for metric_str in metric_strs)}')
 
-    score, metrics = calculate_fitness(solution, weights)
+    score, metrics = solution.calculate_fitness(weights)
     metric_strs = [f'{" ".join(key.title().split("_"))}: {value}' for key, value in metrics.items()]
     print(f'New Solution Metrics: {" | ".join(metric_str for metric_str in metric_strs)}')
 
 
-def main():
+def main(event_loop=None, queue=None):
     start = dt.datetime.now()
 
-    state = 'pa.pkl'  # 'nc'
+    state = 'pa'  # 'nc'
     districts = 17  # 14
     data_path = f'data/{state}/vtd-election-and-census.shp'
     simplified_path = f'data/{state}/simplified.parquet'
@@ -64,16 +55,17 @@ def main():
     algorithm = GeneticRedistrictingAlgorithm(
         env=RedistrictingEnv(
             data_path=simplified_path,
+            state=state,
             n_districts=districts,
             live_plot=False,
             save_data_dir=f'maps/solutions/{state}',
-            save_img_dir=None,
+            save_img_dir=f'maps/images',
         ),
         starting_maps_dir=f'maps/random-starting-points/{state}',
         start=start,
         verbose=1,
         print_every=10,  # How often to log and print updates on the progress
-        save_every=100,  # How often to save progress
+        save_every=10,  # How often to save progress
         log_path='log.txt',
         population_size=2,  # For all practical purpose, a large population size will not provide valuable results
         selection_pct=0.5,  # Selects 1 from the population size of 2 and mutates that single map to generate another
@@ -103,13 +95,21 @@ def main():
         min_p=0.1,  # Ensures that, despite heuristics, every mutation is still somewhat possible
     )
 
+    def put(item):
+        # Add an item to the async queue, if it exists
+        if queue is not None and event_loop is not None:
+            asyncio.run_coroutine_threadsafe(queue.put(item), event_loop)
+
     # This will likely take several hours
-    algorithm.run(generations=100_000)
+    for update in algorithm.run(generations=100_000):
+        put(update)
+
+    put('DONE')  # Indicate it is done
 
     # Compare the current in place map to the new solution
-    compare(districts=districts, state=state, name=algorithm.start.strftime("%Y-%m-%d-%H-%M-%S"))
+    # compare(districts=districts, state=state, name=algorithm.start.strftime("%Y-%m-%d-%H-%M-%S"))
 
 
 if __name__ == '__main__':
-    # compare(districts=17, state='pa.pkl', name='2024-03-22-03-16-37')
-    main()
+    compare(districts=17, state='pa', name='2024-03-22-03-16-36.pkl')
+    # main()

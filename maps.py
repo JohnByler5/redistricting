@@ -320,11 +320,12 @@ class DistrictMap:
         self.env.data['_temp_district'] = self.assignments
         self.env.ax.clear()
         self.env.data.plot(column='_temp_district', ax=self.env.ax, cmap='tab20')
+        self.env.ax.axis('off')
         if draw:
             plt.draw()
             plt.pause(0.10)
         if save:
-            self.env.fig.savefig(save_path)
+            self.env.fig.savefig(save_path, bbox_inches='tight')
 
     def set(self, index, to_district):
         """Modifies the assignments and aggragated district geometries and data to allocate certain VTDs to a different
@@ -408,6 +409,16 @@ class DistrictMap:
                 outcome = group_by[metric].mean()
             outcomes[metric] = outcome
         return outcomes
+
+    def calculate_fitness(self, weights):
+        score = 0
+        metrics = {'fitness': '0'}
+        for metric, weight in weights.items():
+            result = getattr(self, f'calculate_{metric}')()
+            score += result * weight
+            metrics[metric] = f'{result:.4%}'
+        metrics['fitness'] = f'{score:.4f}'
+        return score, metrics
 
 
 class DistrictMapCollection:

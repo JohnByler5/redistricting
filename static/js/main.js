@@ -8,7 +8,7 @@ document.addEventListener("DOMContentLoaded", function() {
 });
 
 function updateSliderValue(slider, display, isPercentage = false) {
-    displayElement.textContent = isPercentage ? `${value}%` : parseInt(value).toLocaleString();
+    display.textContent = isPercentage ? `${value}%` : parseInt(value).toLocaleString();
 }
 
 function resetParameters() {
@@ -75,12 +75,14 @@ function stopAlgorithm() {
 }
 
 function updateMapAndStats(mapType, mapData) {
-    const mapImage = document.querySelector(`.${mapType} .image-container img`);
+    console.log(mapType);
+    console.log(mapData);
+    const mapImage = document.querySelector(`.${mapType} img`);
     mapImage.src = mapData.imageUrl;
     const statsContainer = document.querySelector(`.${mapType} .stats-container`);
     for (const statName in mapData.stats) {
         const statValue = mapData.stats[statName];
-        const statElement = statsContainer.querySelector(`.${statName.toLowerCase()} .value`);
+        const statElement = statsContainer.querySelector(`.${statName} .value`);
         statElement.textContent = statValue;
     }
 }
@@ -91,6 +93,6 @@ ws.onmessage = function(event) {
     const data = JSON.parse(event.data);
     document.getElementById('time').textContent = data.timeElapsed;
     document.getElementById('generation').textContent = data.generation;
-    updateMapAndStats('currentMap', data.currentMap);
-    updateMapAndStats('solutionMap', data.solutionMap);
+    updateMapAndStats('current-map', data.currentMap);
+    updateMapAndStats('solution-map', data.solutionMap);
 };

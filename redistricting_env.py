@@ -43,12 +43,13 @@ class RedistrictingEnv:
     congressional districts for a given state. Also includes helper data such as a GeoDataFrame for all neighbors
     (touching) VTDs for every VTD and other functionality, such as a union cache to speed up union calculation times and
     live plotting functionality if wanted."""
-    def __init__(self, data_path, n_districts, live_plot=False, save_data_dir=None, save_img_dir=None):
+    def __init__(self, data_path, state, n_districts, live_plot=False, save_data_dir=None, save_img_dir=None):
         self.data = gpd.read_parquet(data_path)
         num_cols = self.data.select_dtypes(np.number).columns
         self.data[num_cols] = self.data[num_cols].astype(np.float64)
         self.n_blocks = len(self.data)
 
+        self.state = state
         assert isinstance(n_districts, int)
         assert n_districts > 0
         assert n_districts <= self.n_blocks
@@ -65,6 +66,8 @@ class RedistrictingEnv:
         self.save_data_dir = save_data_dir
         self.save_img_dir = save_img_dir
 
+        bounds = self.data.total_bounds
+        aspect_ratio = (bounds[2] - bounds[0]) / (bounds[3] - bounds[1])
         if not live_plot:
             matplotlib.use('agg')
-        self.fig, self.ax = plt.subplots(figsize=(10, 10))
+        self.fig, self.ax = plt.subplots(figsize=(10, 10 / aspect_ratio))

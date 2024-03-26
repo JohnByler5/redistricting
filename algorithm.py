@@ -1,8 +1,12 @@
 import datetime as dt
 from numbers import Number
 
+import geopandas as gpd
 import matplotlib.pyplot as plt
 import numpy as np
+
+from maps import DistrictMap
+from redistricting_env import infer_utm_crs
 
 
 def is_number(x):
@@ -120,6 +124,7 @@ class Algorithm:
         open(self.log_path, 'w').close()
 
         self.save_every = save_every
+        self.save_img_path = f'{self.env.save_img_dir}/{self.start.strftime("%Y-%m-%d-%H-%M-%S")}.png'
 
         if weights is None:
             params = DictCollection()
@@ -138,6 +143,21 @@ class Algorithm:
         self.time_step_count = 0
 
         self._start_map = None
+
+        districts = gpd.read_file(f'data/{self.env.state}/current-boundaries.shp')
+        districts.to_crs(infer_utm_crs(districts), inplace=True)
+        centroids = gpd.GeoDataFrame(self.env.data, geometry=self.env.data.geometry.centroid)
+        assignments = gpd.sjoin(centroids, districts, how='left', predicate='within')['index_right'].values
+        district_map = DistrictMap(env=self.env, assignments=assignments)
+        district_map.save(f'maps/current/{self.env.state}.pkl')
+
+        self.current_fitness, self.current_metrics = district_map.calculate_fitness(DictCollection(
+            contiguity=0,
+            population_balance=-5,
+            compactness=1,
+            win_margin=-1,
+            efficiency_gap=-1,
+        ))
 
     def log(self, message, verbose=None):
         """Logs a message in a file and in the console (if indicated by verbose) with a timestamp."""
@@ -162,11 +182,39 @@ class Algorithm:
 
     def run(self, generations) -> [int]: ...
 
-    def _tick(self, district_map):
+    def _tick(self, district_map, metrics):
         """Performs a time step (or generation) for the algorithm."""
         self._plot(district_map)
         self.params.tick()
         self.time_step_count += 1
+
+        elapsed = (dt.datetime.now() - self.start).total_seconds()
+        return {
+            "timeElapsed": f'{elapsed // 3600:02.0f}:{(elapsed % 3600) // 60:02.0f}:{elapsed % 60:02.0f}',
+            "generation": self.time_step_count,
+            "currentMap": {
+                "imageUrl": f'maps/images/current-{self.env.state}-districts.png',
+                "stats": {
+                    "fitness": self.current_metrics['fitness'],
+                    "pop-balance": self.current_metrics['population_balance'],
+                    "win-margin": self.current_metrics['win_margin'],
+                    "contiguity": self.current_metrics['contiguity'],
+                    "compactness": self.current_metrics['compactness'],
+                    "efficiency-gap": self.current_metrics['efficiency_gap'],
+                }
+            },
+            "solutionMap": {
+                "imageUrl": self.save_img_path,
+                "stats": {
+                    "fitness": metrics['fitness'],
+                    "pop-balance": metrics['population_balance'],
+                    "win-margin": metrics['win_margin'],
+                    "contiguity": metrics['contiguity'],
+                    "compactness": metrics['compactness'],
+                    "efficiency-gap": metrics['efficiency_gap'],
+                }
+            }
+        }
 
     def _plot(self, district_map):
         """Plots and saves the current district map if wanted and indicated for this timestep by the relevant
@@ -175,5 +223,5 @@ class Algorithm:
             district_map.save(path=f'{self.env.save_data_dir}/{self.start.strftime("%Y-%m-%d-%H-%M-%S")}.pkl')
 
         save_img = self.env.save_img_dir is not None and ((self.time_step_count % self.save_every) == 0)
-        save_path = f'{self.env.save_img_dir}/{self.start.strftime("%Y-%m-%d-%H-%M-%S")}'
+        save_path = self.save_img_path
         district_map.plot(save=save_img, save_path=save_path)
