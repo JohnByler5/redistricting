@@ -1,0 +1,143 @@
+body {
+    font-family: 'Open Sans', sans-serif;
+    background-color: #f5f5f5;
+    margin: 0;
+    padding: 0;
+    color: #333;
+}
+.header {
+    background-color: #333;
+    color: #fff;
+    padding: 0px 40px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+.nav a {
+    margin: 0px 20px;
+    color: #fff;
+    font-size: 18px;
+    text-decoration: none;
+}
+.nav a :hover {
+    color: #eee;
+}
+.container {
+    text-align: center;
+    padding: 20px;
+}
+.box {
+    background-color: #E4E4E4;
+    padding: 10px;
+    border: 1px solid #ccc;
+    border-radius: 16px;
+    box-sizing: border-box;
+}
+.parameter-container {
+    width: 60%;
+    margin: 30px 20% 0% 20%;
+    font-size: 16px;
+    text-align: left;
+    padding: 20px 30px;
+}
+.flex-between {
+    display: flex;
+    flex-direction: row;
+    justify-content: space-between;
+}
+.parameter-container h2 {
+    margin: 0px 0px;
+}
+.parameter-container h3 {
+    margin: 30px 0px 15px 0px;
+}
+.parameter {
+    display: flex;
+    align-items: center;
+    margin: 10px 0;
+}
+.parameter label {
+    flex-basis: 25%; /* Adjust this value as needed to fit your layout */
+    text-align: left;
+    margin-right: 10px;
+}
+.slider-container {
+    display: flex;
+    flex-grow: 1; /* Allows the container to grow and fill the available space */
+    align-items: center;
+}
+.slider-container input[type="range"] {
+    flex-grow: 1; /* Allows the slider to grow and fill the available space */
+    margin: 0 10px;
+}
+.slider-container span {
+    width: 80px;
+    text-align: left;
+}
+button {
+    background-color: #007bff;
+    color: #fff;
+    border: none;
+    padding: 10px 20px;
+    font-size: 16px;
+    border-radius: 1lh;
+    cursor: pointer;
+}
+#start-running, #stop-running {
+    display: inline;
+    width: 120px;
+    height: 50px;
+    font-size: 24px;
+    margin: 60px 0;
+}
+#start-running {
+    background-color: #4CAF50; /* Green */
+}
+#stop-running {
+    background-color: #ff4d4d; /* Red */
+    display: none;
+}
+.run-state {
+    width: fit-content;
+    margin: 50px auto;
+    font-size: 18px;
+    padding: 10px 15px;
+}
+.map-container {
+    display: flex;
+    justify-content: space-around;
+}
+.image-container {
+    width: 45%;
+}
+img {
+    border-radius: 8px;
+    max-width: 100%;
+}
+.stats-container {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+    gap: 5px 40px;
+    min-width: 40%;
+    font-size: 16px;
+    text-align: left;
+    padding: 5px 10px;
+    margin: 10px 10px 0px 10px;
+}
+.stat {
+    display: flex;
+    flex-direction: row;
+    align-items: center;
+    gap: 5px;
+    justify-content: space-between;
+}
+.footer {
+    text-align: center;
+    margin-top: 60px;
+    padding: 20px;
+    background-color: #f0f0f0;
+}
+.footer a {
+    color: #007bff;
+    text-decoration: none;
+}
