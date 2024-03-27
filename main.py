@@ -1,25 +1,87 @@
-import asyncio
-import datetime as dt
-
 import geopandas as gpd
 
-from algorithm import since_start, DictCollection, ParameterCollection, Parameter, RangeParameter
+from algorithm import DictCollection, ParameterCollection, Parameter, RangeParameter
 from genetic_algorithm import GeneticRedistrictingAlgorithm
 from maps import DistrictMap
-from redistricting_env import refresh_data, RedistrictingEnv, infer_utm_crs
+from redistricting_env import RedistrictingEnv, infer_utm_crs
+
+CONFIG = {
+    'pa': {
+        'n_districts': 17,
+        'paths': {
+            'data': f'data/pa/vtd-election-and-census.shp',
+            'simplified': f'data/pa/simplified.parquet',
+            'current_boundaries': f'data/pa/current-boundaries.shp',
+            'solution_data': f'maps/solutions/data/pa',
+            'solution_images': f'maps/solutions/images/pa',
+            'current_data': f'maps/current/data/pa.pkl',
+            'current_images': f'maps/current/images/pa.png',
+            'starting_maps': f'maps/random-starting-points/pa',
+        },
+    },
+    'nc': {
+        'n_districts': 14,
+        'paths': {
+            'raw_data': f'data/nc/vtd-election-and-census.shp',
+            'simplified_raw_data': f'data/nc/simplified.parquet',
+            'current_boundaries': f'data/nc/current-boundaries.shp',
+            'current_data': f'maps/current/data/nc.pkl',
+            'current_image': f'maps/current/images/n.png',
+            'solution_data_dir': f'maps/solutions/data/nc',
+            'solution_image_dir': f'maps/solutions/images/nc',
+            'starting_map_dir': f'maps/random-starting-points/nc',
+        },
+    },
+}
 
 
-def compare(districts, state, name):
-    env = RedistrictingEnv(f'data/{state}/simplified.parquet', state=state, n_districts=districts, live_plot=False,
-                           save_img_dir='maps')
-    districts = gpd.read_file(f'data/{state}/current-boundaries.shp')
-    solution = DistrictMap.load(f'maps/solutions/{state}/{name}', env=env)
-    districts.to_crs(infer_utm_crs(districts), inplace=True)
-    centroids = gpd.GeoDataFrame(env.data, geometry=env.data.geometry.centroid)
-    assignments = gpd.sjoin(centroids, districts, how='left', predicate='within')['index_right'].values
-    district_map = DistrictMap(env=env, assignments=assignments)
-    district_map.save(f'maps/current/{state}.pkl')
-    district_map.plot(f'maps/images/current-{state}-districts.png')
+def refresh_current_maps(states):
+    for state in states:
+        env = RedistrictingEnv(
+            data_path=CONFIG[state]['paths']['simplified_raw_data'],
+            state=state,
+            n_districts=CONFIG[state]['n_districts'],
+            live_plot=False,
+            save_data_dir=CONFIG[state]['paths']['solution_data_dir'],
+            save_img_dir=CONFIG[state]['paths']['solution_image_dir'],
+        )
+
+        districts = gpd.read_file(CONFIG[state]['paths']['current_boundaries'])
+        districts.to_crs(infer_utm_crs(districts), inplace=True)
+        centroids = gpd.GeoDataFrame(env.data, geometry=env.data.geometry.centroid)
+        assignments = gpd.sjoin(centroids, districts, how='left', predicate='within')['index_right'].values
+        district_map = DistrictMap(env=env, assignments=assignments)
+        district_map.save(CONFIG[state]['paths']['current_data'])
+        district_map.plot(CONFIG[state]['paths']['current_image'])
+
+
+def compare(state, name, weights):
+    env = RedistrictingEnv(data_path=CONFIG[state]['paths']['simplified_raw_data'], state=state,
+                           n_districts=CONFIG[state]['n_districts'], live_plot=False,
+                           save_img_dir=CONFIG[state]['paths']['solution_image_dir'])
+    current = DistrictMap.load(CONFIG[state]['paths']['current_data'], env=env)
+    solution = DistrictMap.load(f'{CONFIG[state]["paths"]["solution_data_dir"]}/{name}', env=env)
+
+    score, metrics = current.calculate_fitness(weights)
+    metric_strs = [f'{" ".join(key.title().split("_"))}: {value}' for key, value in metrics.items()]
+    print(f'Current District Metrics: {" | ".join(metric_str for metric_str in metric_strs)}')
+
+    score, metrics = solution.calculate_fitness(weights)
+    metric_strs = [f'{" ".join(key.title().split("_"))}: {value}' for key, value in metrics.items()]
+    print(f'New Solution Metrics: {" | ".join(metric_str for metric_str in metric_strs)}')
+
+
+def create_algorithm():
+    state = 'pa'
+
+    env = RedistrictingEnv(
+        data_path=CONFIG[state]['paths']['simplified'],
+        state=state,
+        n_districts=CONFIG[state]['n_districts'],
+        live_plot=False,
+        save_data_dir=CONFIG[state]['paths']['save_data_dir'],
+        save_img_dir=CONFIG[state]['paths']['save_img_dir'],
+    )
 
     weights = DictCollection(
         contiguity=0,
@@ -29,40 +91,24 @@ def compare(districts, state, name):
         efficiency_gap=-1,
     )
 
-    score, metrics = district_map.calculate_fitness(weights)
-    metric_strs = [f'{" ".join(key.title().split("_"))}: {value}' for key, value in metrics.items()]
-    print(f'Current District Metrics: {" | ".join(metric_str for metric_str in metric_strs)}')
+    params = ParameterCollection(
+        expansion_population_bias=Parameter(-0.6, exp_factor=1),  # The bias parameters aid the genetic mutations
+        reduction_population_bias=Parameter(0.6, exp_factor=1),  # through heuristics that favor modifications
+        expansion_distance_bias=Parameter(-0.2, exp_factor=1),  # that will likely result in increase fitness
+        reduction_distance_bias=Parameter(0.2, exp_factor=1),
+        expansion_surrounding_bias=Parameter(0.1, exp_factor=1),
+        reduction_surrounding_bias=Parameter(-0.1, exp_factor=1),
+        mutation_size=RangeParameter(0.0, 1.0, exp_factor=0.5 ** (1 / 10_000)),  # One mutation is a percentage of
+        # additions or removals of all touching VTDs of a district
+        mutation_layers=RangeParameter(1, 1, exp_factor=1 ** (1 / 20_000), min_value=1),  # More layers means
+        # each mutation will include more layers of touching VTDs, allowing for larger changes
+        mutation_n=RangeParameter(1 / env.n_districts, 1 / env.n_districts, exp_factor=2 ** (1 / 10_000), max_value=2),
+        # Higher "n" means more modified districts per mutation, allowing for more complex changes
+    )
 
-    score, metrics = solution.calculate_fitness(weights)
-    metric_strs = [f'{" ".join(key.title().split("_"))}: {value}' for key, value in metrics.items()]
-    print(f'New Solution Metrics: {" | ".join(metric_str for metric_str in metric_strs)}')
-
-
-def main(event_loop=None, queue=None):
-    start = dt.datetime.now()
-
-    state = 'pa'  # 'nc'
-    districts = 17  # 14
-    data_path = f'data/{state}/vtd-election-and-census.shp'
-    simplified_path = f'data/{state}/simplified.parquet'
-
-    refresh = False
-    if refresh:
-        print(f'{since_start(start)} - Refreshing data...')
-        refresh_data(data_path=data_path, simplified_path=simplified_path)
-
-    print(f'{since_start(start)} - Initiating algorithm...')
     algorithm = GeneticRedistrictingAlgorithm(
-        env=RedistrictingEnv(
-            data_path=simplified_path,
-            state=state,
-            n_districts=districts,
-            live_plot=False,
-            save_data_dir=f'maps/solutions/{state}',
-            save_img_dir=f'maps/images',
-        ),
-        starting_maps_dir=f'maps/random-starting-points/{state}',
-        start=start,
+        env=env,
+        starting_maps_dir=CONFIG[state]['paths']['starting_maps_dir'],
         verbose=1,
         print_every=10,  # How often to log and print updates on the progress
         save_every=10,  # How often to save progress
@@ -71,45 +117,21 @@ def main(event_loop=None, queue=None):
         selection_pct=0.5,  # Selects 1 from the population size of 2 and mutates that single map to generate another
         starting_population_size=25,  # Starts with a large population size in 0th generation and selects the best 2
         # -1 indicates that all maps found in the random-starting-points directory will be used to start the population
-        weights=DictCollection(
-            contiguity=0,  # Contiguity is not valued because
-            population_balance=-5,  # Lower is better, most important factor (we want equal sized districts)
-            compactness=1,  # Higher is better, indicates shapes are closer to a circle (perfectly compact)
-            win_margin=-1,  # Lower is better, indicates districts are more competitive
-            efficiency_gap=-1,  # Lower is better, discourages Gerrymandering from either side
-        ),
-        params=ParameterCollection(
-            expansion_population_bias=Parameter(-0.6, exp_factor=1),  # The bias parameters aid the genetic mutations
-            reduction_population_bias=Parameter(0.6, exp_factor=1),   # through heuristics that favor modifications
-            expansion_distance_bias=Parameter(-0.2, exp_factor=1),    # that will likely result in increase fitness
-            reduction_distance_bias=Parameter(0.2, exp_factor=1),
-            expansion_surrounding_bias=Parameter(0.1, exp_factor=1),
-            reduction_surrounding_bias=Parameter(-0.1, exp_factor=1),
-            mutation_size=RangeParameter(0.0, 1.0, exp_factor=0.5 ** (1 / 10_000)),  # One mutation is a percentage of
-            # additions or removals of all touching VTDs of a district
-            mutation_layers=RangeParameter(1, 1, exp_factor=1 ** (1 / 20_000), min_value=1),  # More layers means
-            # each mutation will include more layers of touching VTDs, allowing for larger changes
-            mutation_n=RangeParameter(1 / districts, 1 / districts, exp_factor=2 ** (1 / 10_000), max_value=2),  # Higher "n" means
-            # more modified districts per mutation, allowing for more complex changes
-        ),
+        weights=weights,
+        params=params,
         min_p=0.1,  # Ensures that, despite heuristics, every mutation is still somewhat possible
     )
 
-    def put(item):
-        # Add an item to the async queue, if it exists
-        if queue is not None and event_loop is not None:
-            asyncio.run_coroutine_threadsafe(queue.put(item), event_loop)
+    return algorithm
 
-    # This will likely take several hours
-    for update in algorithm.run(generations=100_000):
-        put(update)
 
-    put('OPERATION_COMPLETE')  # Indicate it is done
+def main():
+    algorithm = create_algorithm()
+    algorithm.run(generations=100_000)
 
     # Compare the current in place map to the new solution
-    # compare(districts=districts, state=state, name=algorithm.start.strftime("%Y-%m-%d-%H-%M-%S"))
+    compare(state=algorithm.env.states, name=algorithm.start.strftime("%Y-%m-%d-%H-%M-%S"), weights=algorithm.weights)
 
 
 if __name__ == '__main__':
-    compare(districts=17, state='pa', name='2024-03-22-03-16-36.pkl')
-    # main()
+    main()

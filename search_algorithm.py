@@ -13,14 +13,12 @@ class SearchRedistrictingAlgorithm(Algorithm):
     def __init__(
             self,
             env,
-            start=dt.datetime.now(),
             verbose=1,
             save_every=1,
             log_path='log.txt',
             weights=None,
     ):
-        super().__init__(env=env, start=start, verbose=verbose, save_every=save_every, log_path=log_path,
-                         weights=weights)
+        super().__init__(env=env, verbose=verbose, save_every=save_every, log_path=log_path, weights=weights)
 
         self.district_map = DistrictMap(env)
         self.metrics = {key: None for key in self.weights}

@@ -109,22 +109,23 @@ class Algorithm:
     def __init__(
             self,
             env,
-            start=dt.datetime.now(),
             log_path='log.txt',
             verbose=1,
             save_every=0,
             weights=None,
             params=None,
     ):
+        self.start = dt.datetime.now()
+
         self.env = env
 
-        self.start = start
         self.verbose = verbose
         self.log_path = log_path
         open(self.log_path, 'w').close()
 
         self.save_every = save_every
-        self.save_img_path = f'{self.env.save_img_dir}/{self.start.strftime("%Y-%m-%d-%H-%M-%S")}.png'
+        self.save_data_path = f'{env.save_data_dir}/{start.strftime("%Y-%m-%d-%H-%M-%S")}.pkl'
+        self.save_img_path = f'{env.save_img_dir}/{start.strftime("%Y-%m-%d-%H-%M-%S")}.png'
 
         if weights is None:
             params = DictCollection()
@@ -144,13 +145,8 @@ class Algorithm:
 
         self._start_map = None
 
-        districts = gpd.read_file(f'data/{self.env.state}/current-boundaries.shp')
-        districts.to_crs(infer_utm_crs(districts), inplace=True)
-        centroids = gpd.GeoDataFrame(self.env.data, geometry=self.env.data.geometry.centroid)
-        assignments = gpd.sjoin(centroids, districts, how='left', predicate='within')['index_right'].values
-        district_map = DistrictMap(env=self.env, assignments=assignments)
-        district_map.save(f'maps/current/{self.env.state}.pkl')
-
+        # Load current map
+        district_map = DistrictMap.load(f'maps/current/data/{self.env.state}.pkl', env=self.env)
         self.current_fitness, self.current_metrics = district_map.calculate_fitness(DictCollection(
             contiguity=0,
             population_balance=-5,
@@ -220,8 +216,7 @@ class Algorithm:
         """Plots and saves the current district map if wanted and indicated for this timestep by the relevant
         parameters, i.e. 'save_every' and the save directory parameters."""
         if self.env.save_data_dir is not None and ((self.time_step_count % self.save_every) == 0):
-            district_map.save(path=f'{self.env.save_data_dir}/{self.start.strftime("%Y-%m-%d-%H-%M-%S")}.pkl')
+            district_map.save(path=self.save_data_path)
 
         save_img = self.env.save_img_dir is not None and ((self.time_step_count % self.save_every) == 0)
-        save_path = self.save_img_path
-        district_map.plot(save=save_img, save_path=save_path)
+        district_map.plot(save=save_img, save_path=self.save_img_path)

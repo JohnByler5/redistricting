@@ -1,4 +1,3 @@
-import datetime as dt
 import itertools
 import os
 
@@ -70,7 +69,6 @@ class GeneticRedistrictingAlgorithm(Algorithm):
             self,
             env,
             starting_maps_dir,
-            start=dt.datetime.now(),
             verbose=1,
             print_every=1,
             save_every=0,
@@ -105,8 +103,8 @@ class GeneticRedistrictingAlgorithm(Algorithm):
             mutation_n=RangeParameter(0.0, 1.0),
         )
 
-        super().__init__(env=env, start=start, log_path=log_path, verbose=verbose, save_every=save_every,
-                         weights=weights, params=params)
+        super().__init__(env=env, log_path=log_path, verbose=verbose, save_every=save_every, weights=weights,
+                         params=params)
 
         self.print_every = print_every
         self.population_size = population_size
@@ -207,7 +205,7 @@ class GeneticRedistrictingAlgorithm(Algorithm):
         return selected
 
     def _mutation(self, district_map, district):
-        """Performs a single mutation for a single district map. Will expand or reduce the district depedning on what
+        """Performs a single mutation for a single district map. Will expand or reduce the district depending on what
         is necessary, while being also somewhat random as to which."""
         expand_start, reduce_start = None, None
         for _ in range(self.params.mutation_layers.randint(scale=1, min_value=1)):

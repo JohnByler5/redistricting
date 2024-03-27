@@ -6,13 +6,26 @@ import threading
 
 from quart import Quart, render_template, send_from_directory, url_for, websocket
 
-from main import main
+from main import create_algorithm
 
 app = Quart(__name__)
 users = {}
 
 update_event = asyncio.Event()
 lock = asyncio.Lock()
+
+
+def run_algorithm(algorithm, generations, event_loop=None, queue=None):
+    def put(item):
+        # Add an item to the async queue, if it exists
+        if queue is not None and event_loop is not None:
+            asyncio.run_coroutine_threadsafe(queue.put(item), event_loop)
+
+    # This will likely take several hours
+    for update in algorithm.run(generations=generations):
+        put(update)
+
+    put('OPERATION_COMPLETE')  # Indicate it is done
 
 
 @app.route('/')
@@ -25,7 +38,12 @@ async def start_algorithm():
     global users
 
     q = asyncio.Queue()
-    thread = threading.Thread(target=main, args=(asyncio.get_event_loop(), q))
+    thread = threading.Thread(target=run_algorithm, kwargs={
+        'algorithm': create_algorithm(),
+        'generations': 100_000,
+        'event_loop': asyncio.get_event_loop(),
+        'queue': q,
+    })
     thread.start()
     async with lock:
         users['user_id'] = (thread, q)  # TODO: Actually implement user IDs
