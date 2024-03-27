@@ -30,6 +30,7 @@ async def start_algorithm():
     async with lock:
         users['user_id'] = (thread, q)  # TODO: Actually implement user IDs
         update_event.set()
+
     return {'message': 'Algorithm started successfully!'}
 
 
@@ -39,7 +40,9 @@ async def stop_algorithm():
 
     async with lock:
         thread, _ = users['user_id']  # TODO: Actually implement user IDs
+
     # TODO: Kill thread here
+
     return {'message': 'Algorithm stopped successfully!'}
 
 
@@ -49,7 +52,7 @@ async def images(filename):
 
 
 @app.websocket('/ws')
-async def ws():
+async def websocket():
     global users
 
     while True:
@@ -68,6 +71,7 @@ async def ws():
                 # Algorithm is finished
                 async with lock:
                     users.pop('user_id')
+                await websocket.send(json.dumps({'event': 'OPERATION_COMPLETE'}))
                 break
 
             if results == last:

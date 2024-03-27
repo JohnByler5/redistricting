@@ -8,7 +8,7 @@ document.addEventListener("DOMContentLoaded", function() {
 });
 
 function updateSliderValue(slider, display, isPercentage = false) {
-    display.textContent = isPercentage ? `${value}%` : parseInt(value).toLocaleString();
+    display.textContent = isPercentage ? `${slider.value}%` : parseInt(slider.value).toLocaleString();
 }
 
 function resetParameters() {
@@ -75,8 +75,6 @@ function stopAlgorithm() {
 }
 
 function updateMapAndStats(mapType, mapData) {
-    console.log(mapType);
-    console.log(mapData);
     const mapImage = document.querySelector(`.${mapType} img`);
     mapImage.src = mapData.imageUrl;
     const statsContainer = document.querySelector(`.${mapType} .stats-container`);
@@ -87,12 +85,17 @@ function updateMapAndStats(mapType, mapData) {
     }
 }
 
-const ws = new WebSocket(`ws://${window.location.host}/ws`);
+const ws = new WebSocket(`wss://${window.location.host}/ws`);
 
 ws.onmessage = function(event) {
     const data = JSON.parse(event.data);
-    document.getElementById('time').textContent = data.timeElapsed;
-    document.getElementById('generation').textContent = data.generation;
-    updateMapAndStats('current-map', data.currentMap);
-    updateMapAndStats('solution-map', data.solutionMap);
+    if ("event" in data && data["event"] === "OPERATION_COMPLETE") {
+        document.getElementById("start-running").style.display = "inline";
+        document.getElementById("stop-running").style.display = "none";
+    } else {
+        document.getElementById('time').textContent = data.timeElapsed;
+        document.getElementById('generation').textContent = data.generation;
+        updateMapAndStats('current-map', data.currentMap);
+        updateMapAndStats('solution-map', data.solutionMap);
+    }
 };
