@@ -1,9 +1,7 @@
-import datetime as dt
-
 import numpy as np
 
-from algorithm import Algorithm
-from maps import DistrictMap, DISTRICT_FEATURES
+from .algorithm import Algorithm
+from .maps import DistrictMap, DISTRICT_FEATURES
 
 
 class SearchRedistrictingAlgorithm(Algorithm):
@@ -13,9 +11,9 @@ class SearchRedistrictingAlgorithm(Algorithm):
     def __init__(
             self,
             env,
+            log_path=None,
             verbose=1,
             save_every=1,
-            log_path='log.txt',
             weights=None,
     ):
         super().__init__(env=env, verbose=verbose, save_every=save_every, log_path=log_path, weights=weights)
@@ -54,7 +52,7 @@ class SearchRedistrictingAlgorithm(Algorithm):
         self.log(f'Generation: {self.time_step_count:,} - Mutations: {self.mutation_count} - '
                  f'Fitness: {self.fitness:.4f} - {" | ".join(metric_str for metric_str in metric_strs)}')
 
-        self._tick(self.district_map)
+        self._tick(self.district_map, metrics=self.metrics)
         if not last:
             self.log(f'Mutating...')
             self._mutate()

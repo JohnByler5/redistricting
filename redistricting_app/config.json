@@ -1,0 +1,31 @@
+{
+    "log_path": "redistricting_app/log.txt",
+    "states": {
+        "pa": {
+            "n_districts": 17,
+            "paths": {
+                "data": "redistricting_app/data/pa/vtd-election-and-census.shp",
+                "simplified": "redistricting_app/data/pa/simplified.parquet",
+                "current_boundaries": "redistricting_app/data/pa/current-boundaries.shp",
+                "current_data": "redistricting_app/maps/current/data/pa.pkl",
+                "current_images": "redistricting_app/maps/current/images/pa.png",
+                "solution_data_dir": "redistricting_app/maps/solutions/data/pa",
+                "solution_images_dir": "redistricting_app/maps/solutions/images/pa",
+                "starting_maps_dir": "redistricting_app/maps/random-starting-points/pa"
+            }
+        },
+        "nc": {
+            "n_districts": 14,
+            "paths": {
+                "raw_data": "redistricting_app/data/nc/vtd-election-and-census.shp",
+                "simplified_raw_data": "redistricting_app/data/nc/simplified.parquet",
+                "current_boundaries": "redistricting_app/data/nc/current-boundaries.shp",
+                "current_data": "redistricting_app/maps/current/data/nc.pkl",
+                "current_image": "redistricting_app/maps/current/images/n.png",
+                "solution_data_dir": "redistricting_app/maps/solutions/data/nc",
+                "solution_images_dir": "redistricting_app/maps/solutions/images/nc",
+                "starting_maps_dir": "redistricting_app/maps/random-starting-points/nc"
+            }
+        }
+    }
+}

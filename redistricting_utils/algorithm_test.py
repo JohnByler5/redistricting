@@ -2,10 +2,10 @@ import copy
 import datetime as dt
 import os
 
-from algorithm import Algorithm, Parameter, RangeParameter, ParameterCollection, DictCollection
-from genetic_algorithm import GeneticRedistrictingAlgorithm
-from maps import DistrictMap
-from redistricting_env import RedistrictingEnv
+from .algorithm import Algorithm, Parameter, RangeParameter, ParameterCollection, DictCollection
+from .genetic_algorithm import GeneticRedistrictingAlgorithm
+from .maps import DistrictMap
+from .env import RedistrictingEnv
 
 
 class AlgorithmTest:
@@ -31,7 +31,7 @@ class AlgorithmTest:
                 files = os.listdir(self.start_map_path)
                 assert len(files) >= self.test_size, 'Start map path does not have enough files'
                 for i, algorithm in enumerate(algorithms):
-                    map_ = DistrictMap.load(os.path.join(self.start_map_path, files[i]))
+                    map_ = DistrictMap.load(os.path.join(self.start_map_path, files[i]), env=algorithm.env)
                     algorithm.set_start_map(map_)
 
             self.log(f'Starting batch with value={value}...', verbose=0)
@@ -63,7 +63,8 @@ def main():
     """
 
     env = RedistrictingEnv(
-        data_path='data/pa/simplified.parquet',
+        data_path='../redistricting_app/data/pa/simplified.parquet',
+        state='pa',
         n_districts=17,
         live_plot=False,
         save_data_dir=None,
@@ -106,7 +107,7 @@ def main():
         param_sets[value] = copy.deepcopy(params)
 
     test = AlgorithmTest(algorithm=GeneticRedistrictingAlgorithm, param_sets=param_sets, test_size=10,
-                         start_map_path='maps/random-starting-points/2024-01-19-12-02-39')
+                         start_map_path='../redistricting_app/maps/random-starting-points/2024-01-19-12-02-39')
     test.run(generations=10, results_path='test_results.txt')
 
 

@@ -1,66 +1,37 @@
 import geopandas as gpd
 
-from algorithm import DictCollection, ParameterCollection, Parameter, RangeParameter
-from genetic_algorithm import GeneticRedistrictingAlgorithm
-from maps import DistrictMap
-from redistricting_env import RedistrictingEnv, infer_utm_crs
-
-CONFIG = {
-    'pa': {
-        'n_districts': 17,
-        'paths': {
-            'data': f'data/pa/vtd-election-and-census.shp',
-            'simplified': f'data/pa/simplified.parquet',
-            'current_boundaries': f'data/pa/current-boundaries.shp',
-            'solution_data': f'maps/solutions/data/pa',
-            'solution_images': f'maps/solutions/images/pa',
-            'current_data': f'maps/current/data/pa.pkl',
-            'current_images': f'maps/current/images/pa.png',
-            'starting_maps': f'maps/random-starting-points/pa',
-        },
-    },
-    'nc': {
-        'n_districts': 14,
-        'paths': {
-            'raw_data': f'data/nc/vtd-election-and-census.shp',
-            'simplified_raw_data': f'data/nc/simplified.parquet',
-            'current_boundaries': f'data/nc/current-boundaries.shp',
-            'current_data': f'maps/current/data/nc.pkl',
-            'current_image': f'maps/current/images/n.png',
-            'solution_data_dir': f'maps/solutions/data/nc',
-            'solution_image_dir': f'maps/solutions/images/nc',
-            'starting_map_dir': f'maps/random-starting-points/nc',
-        },
-    },
-}
+from .algorithm import DictCollection, ParameterCollection, Parameter, RangeParameter
+from .genetic_algorithm import GeneticRedistrictingAlgorithm
+from .maps import DistrictMap
+from .env import RedistrictingEnv, infer_utm_crs
 
 
-def refresh_current_maps(states):
+def refresh_current_maps(states, config):
     for state in states:
         env = RedistrictingEnv(
-            data_path=CONFIG[state]['paths']['simplified_raw_data'],
+            data_path=config['states'][state]['paths']['simplified_raw_data'],
             state=state,
-            n_districts=CONFIG[state]['n_districts'],
+            n_districts=config['states'][state]['n_districts'],
             live_plot=False,
-            save_data_dir=CONFIG[state]['paths']['solution_data_dir'],
-            save_img_dir=CONFIG[state]['paths']['solution_image_dir'],
+            save_data_dir=config['states'][state]['paths']['solution_data_dir'],
+            save_img_dir=config['states'][state]['paths']['solution_images_dir'],
         )
 
-        districts = gpd.read_file(CONFIG[state]['paths']['current_boundaries'])
+        districts = gpd.read_file(config['states'][state]['paths']['current_boundaries'])
         districts.to_crs(infer_utm_crs(districts), inplace=True)
         centroids = gpd.GeoDataFrame(env.data, geometry=env.data.geometry.centroid)
         assignments = gpd.sjoin(centroids, districts, how='left', predicate='within')['index_right'].values
         district_map = DistrictMap(env=env, assignments=assignments)
-        district_map.save(CONFIG[state]['paths']['current_data'])
-        district_map.plot(CONFIG[state]['paths']['current_image'])
+        district_map.save(config['states'][state]['paths']['current_data'])
+        district_map.plot(config['states'][state]['paths']['current_image'])
 
 
-def compare(state, name, weights):
-    env = RedistrictingEnv(data_path=CONFIG[state]['paths']['simplified_raw_data'], state=state,
-                           n_districts=CONFIG[state]['n_districts'], live_plot=False,
-                           save_img_dir=CONFIG[state]['paths']['solution_image_dir'])
-    current = DistrictMap.load(CONFIG[state]['paths']['current_data'], env=env)
-    solution = DistrictMap.load(f'{CONFIG[state]["paths"]["solution_data_dir"]}/{name}', env=env)
+def compare(state, name, weights, config):
+    env = RedistrictingEnv(data_path=config['states'][state]['paths']['simplified_raw_data'], state=state,
+                           n_districts=config['states'][state]['n_districts'], live_plot=False,
+                           save_img_dir=config['states'][state]['paths']['solution_images_dir'])
+    current = DistrictMap.load(config['states'][state]['paths']['current_data'], env=env)
+    solution = DistrictMap.load(f'{config["states"][state]["paths"]["solution_data_dir"]}/{name}', env=env)
 
     score, metrics = current.calculate_fitness(weights)
     metric_strs = [f'{" ".join(key.title().split("_"))}: {value}' for key, value in metrics.items()]
@@ -71,16 +42,17 @@ def compare(state, name, weights):
     print(f'New Solution Metrics: {" | ".join(metric_str for metric_str in metric_strs)}')
 
 
-def create_algorithm():
+def create_algorithm(config):
     state = 'pa'
 
     env = RedistrictingEnv(
-        data_path=CONFIG[state]['paths']['simplified'],
         state=state,
-        n_districts=CONFIG[state]['n_districts'],
+        n_districts=config['states'][state]['n_districts'],
+        data_path=config['states'][state]['paths']['simplified'],
+        current_path=config['states'][state]['paths']['current_data'],
+        save_data_dir=config['states'][state]['paths']['solution_data_dir'],
+        save_img_dir=config['states'][state]['paths']['solution_images_dir'],
         live_plot=False,
-        save_data_dir=CONFIG[state]['paths']['save_data_dir'],
-        save_img_dir=CONFIG[state]['paths']['save_img_dir'],
     )
 
     weights = DictCollection(
@@ -108,11 +80,11 @@ def create_algorithm():
 
     algorithm = GeneticRedistrictingAlgorithm(
         env=env,
-        starting_maps_dir=CONFIG[state]['paths']['starting_maps_dir'],
+        starting_maps_dir=config['states'][state]['paths']['starting_maps_dir'],
         verbose=1,
         print_every=10,  # How often to log and print updates on the progress
         save_every=10,  # How often to save progress
-        log_path='log.txt',
+        log_path=config['log_path'],
         population_size=2,  # For all practical purpose, a large population size will not provide valuable results
         selection_pct=0.5,  # Selects 1 from the population size of 2 and mutates that single map to generate another
         starting_population_size=25,  # Starts with a large population size in 0th generation and selects the best 2
@@ -123,15 +95,3 @@ def create_algorithm():
     )
 
     return algorithm
-
-
-def main():
-    algorithm = create_algorithm()
-    algorithm.run(generations=100_000)
-
-    # Compare the current in place map to the new solution
-    compare(state=algorithm.env.states, name=algorithm.start.strftime("%Y-%m-%d-%H-%M-%S"), weights=algorithm.weights)
-
-
-if __name__ == '__main__':
-    main()

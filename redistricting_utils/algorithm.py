@@ -1,12 +1,10 @@
 import datetime as dt
 from numbers import Number
 
-import geopandas as gpd
 import matplotlib.pyplot as plt
 import numpy as np
 
-from maps import DistrictMap
-from redistricting_env import infer_utm_crs
+from .maps import DistrictMap
 
 
 def is_number(x):
@@ -109,7 +107,7 @@ class Algorithm:
     def __init__(
             self,
             env,
-            log_path='log.txt',
+            log_path=None,
             verbose=1,
             save_every=0,
             weights=None,
@@ -124,8 +122,8 @@ class Algorithm:
         open(self.log_path, 'w').close()
 
         self.save_every = save_every
-        self.save_data_path = f'{env.save_data_dir}/{start.strftime("%Y-%m-%d-%H-%M-%S")}.pkl'
-        self.save_img_path = f'{env.save_img_dir}/{start.strftime("%Y-%m-%d-%H-%M-%S")}.png'
+        self.save_data_path = f'{env.save_data_dir}/{self.start.strftime("%Y-%m-%d-%H-%M-%S")}.pkl'
+        self.save_img_path = f'{env.save_img_dir}/{self.start.strftime("%Y-%m-%d-%H-%M-%S")}.png'
 
         if weights is None:
             params = DictCollection()
@@ -146,7 +144,7 @@ class Algorithm:
         self._start_map = None
 
         # Load current map
-        district_map = DistrictMap.load(f'maps/current/data/{self.env.state}.pkl', env=self.env)
+        district_map = DistrictMap.load(env.current_path, env=self.env)
         self.current_fitness, self.current_metrics = district_map.calculate_fitness(DictCollection(
             contiguity=0,
             population_balance=-5,
@@ -158,8 +156,9 @@ class Algorithm:
     def log(self, message, verbose=None):
         """Logs a message in a file and in the console (if indicated by verbose) with a timestamp."""
         message = f'{since_start(self.start)} - {message}'
-        with open(self.log_path, 'a') as f:
-            f.write(f'{message}\n')
+        if self.log_path is not None:
+            with open(self.log_path, 'a') as f:
+                f.write(f'{message}\n')
         if verbose is not None and verbose <= self.verbose:
             print(message)
 
@@ -176,7 +175,7 @@ class Algorithm:
         map_.env = self.env
         self._start_map = map_
 
-    def run(self, generations) -> [int]: ...
+    def run(self, generations): ...
 
     def _tick(self, district_map, metrics):
         """Performs a time step (or generation) for the algorithm."""

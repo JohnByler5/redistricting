@@ -12,7 +12,7 @@ from shapely.geometry import Polygon, MultiPolygon, LineString, MultiLineString
 from shapely.geometry.collection import GeometryCollection
 from shapely.ops import unary_union
 
-from redistricting_env import RedistrictingEnv
+from .env import RedistrictingEnv
 
 UNALLOCATED = -1
 DISTRICT_FEATURES = pd.Index(['population', 'republican', 'democrat'])
@@ -80,7 +80,7 @@ def save_random_maps(env, save_dir, n=None, save_n=None, weights=None, balance_p
 
 class DistrictMap:
     """Class that represents a given congressional district map solution for a RedistrictingEnv environment instance.
-    Stores the assignments for each Voter Tabulation District (VTDs) as well as the aggragated geometry and metric dat
+    Stores the assignments for each Voter Tabulation District (VTDs) as well as the aggregated geometry and metric dat
     for the current district assignments."""
 
     def __init__(self, env, assignments=None, districts=None):
@@ -124,7 +124,7 @@ class DistrictMap:
             return cls(env=env, assignments=pickle.load(f))
 
     def construct_districts(self):
-        """Constructs the district geometries and aggragated data for the current assignments of VTDs."""
+        """Constructs the district geometries and aggregated data for the current assignments of VTDs."""
         allocated = self.assignments != UNALLOCATED
         if not allocated.sum():
             return
@@ -158,7 +158,7 @@ class DistrictMap:
                 self.districts['democrat'] + self.districts['republican'])).mean()
 
     def calculate_efficiency_gap(self):
-        """Calculates the efficiency gap metric, which is essnetially a percentage of how Gerrymandered the maps is.
+        """Calculates the efficiency gap metric, which is essentially a percentage of how Gerrymandered the maps is.
         Lower is better."""
         dem, rep = self.districts['democrat'], self.districts['republican']
         total_votes = dem + rep
@@ -169,7 +169,7 @@ class DistrictMap:
         return np.abs(dem_wasted_votes - rep_wasted_votes) / total_votes.sum()
 
     def randomize(self, balance_population=True, balance_contiguity=True):
-        """Randomizes the district map ssignments while ensuring contiguity and balanceing population if deisred."""
+        """Randomizes the district map assignments while ensuring contiguity and balancing population if desired."""
 
         self.assignments = np.full(self.env.n_blocks, UNALLOCATED)
         n_allocated = 0
@@ -328,7 +328,7 @@ class DistrictMap:
             self.env.fig.savefig(save_path, bbox_inches='tight')
 
     def set(self, index, to_district):
-        """Modifies the assignments and aggragated district geometries and data to allocate certain VTDs to a different
+        """Modifies the assignments and aggregated district geometries and data to allocate certain VTDs to a different
         district(s)."""
         if not hasattr(index, '__iter__'):
             index = np.array([index])
@@ -512,4 +512,3 @@ class DistrictMapCollection:
                 metrics[i][metric] = f'{result:.4%}'
             metrics[i]['fitness'] = f'{scores[i]:.4f}'
         return scores, metrics
-

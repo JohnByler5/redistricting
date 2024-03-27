@@ -4,8 +4,8 @@ import os
 import numpy as np
 from shapely.errors import GEOSException
 
-from algorithm import Algorithm, ParameterCollection, Parameter, RangeParameter
-from maps import count_polygons, save_random_maps, DistrictMap, DistrictMapCollection
+from .algorithm import Algorithm, ParameterCollection, Parameter, RangeParameter
+from .maps import count_polygons, save_random_maps, DistrictMap, DistrictMapCollection
 
 
 def union_from_difference(before, geometries, removals):
@@ -69,10 +69,10 @@ class GeneticRedistrictingAlgorithm(Algorithm):
             self,
             env,
             starting_maps_dir,
+            log_path=None,
             verbose=1,
             print_every=1,
             save_every=0,
-            log_path='log.txt',
             population_size=2,
             starting_population_size=None,
             selection_pct=0.5,
