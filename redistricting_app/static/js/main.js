@@ -1,36 +1,39 @@
 document.addEventListener("DOMContentLoaded", function() {
     document.querySelectorAll(".parameter-container input[type='range']").forEach(slider => {
         const display = slider.nextElementSibling;
+        const reverse = ["contiguity-slider", "pop-balance-slider", "win-margin-slider", "efficiency-gap-slider"].includes(slider.id);
         const isPercentage = display.textContent.includes("%");
-        slider.addEventListener('input', () => updateSliderValue(slider, display, isPercentage));
-        updateSliderValue(slider, display, isPercentage);
+        slider.addEventListener('input', () => updateSliderValue(slider, display, reverse, isPercentage));
+        updateSliderValue(slider, display, reverse, isPercentage);
     });
 });
 
-function updateSliderValue(slider, display, isPercentage = false) {
-    display.textContent = isPercentage ? `${slider.value}%` : parseInt(slider.value).toLocaleString();
+function updateSliderValue(slider, display, reverse = false, isPercentage = false) {
+    let value = reverse ? -slider.value : slider.value;
+    display.textContent = isPercentage ? `${slider.value}%` : parseInt(value).toLocaleString();
 }
 
 function resetParameters() {
     const elementsToReset = [
-        { id: "state-select", value: "PA" },
-        { id: "generation-slider", value: 100000, displayId: "generation-value" },
-        { id: "population-slider", value: 2, displayId: "population-value" },
-        { id: "starting-population-slider", value: 25, displayId: "starting-population-value" },
-        { id: "population-selection-slider", value: 50, displayId: "population-selection-value", isPercentage: true },
-        { id: "contiguity-slider", value: 0, displayId: "contiguity-value" },
-        { id: "pop-balance-slider", value: -5, displayId: "pop-balance-value" },
-        { id: "compactness-slider", value: 1, displayId: "compactness-value" },
-        { id: "win-margin-slider", value: -1, displayId: "win-margin-value" },
-        { id: "efficiency-gap-slider", value: -1, displayId: "efficiency-gap-value" },
+        { id: "state-select", value: "PA"},
+        { id: "generation-slider", value: 10000, displayId: "generation-value", reverse: false},
+        { id: "population-slider", value: 2, displayId: "population-value", reverse: false},
+        { id: "starting-population-slider", value: 25, displayId: "starting-population-value", reverse: false},
+        { id: "population-selection-slider", value: 50, displayId: "population-selection-value", reverse: false, isPercentage: true},
+        { id: "contiguity-slider", value: 0, displayId: "contiguity-value", reverse: true},
+        { id: "pop-balance-slider", value: 5, displayId: "pop-balance-value", reverse: true},
+        { id: "compactness-slider", value: 1, displayId: "compactness-value", reverse: false},
+        { id: "win-margin-slider", value: 1, displayId: "win-margin-value", reverse: true},
+        { id: "efficiency-gap-slider", value: 1, displayId: "efficiency-gap-value", reverse: true},
     ];
 
-    elementsToReset.forEach(({ id, value, displayId, isPercentage }) => {
+    elementsToReset.forEach(({ id, value, displayId, reverse, isPercentage }) => {
         const element = document.getElementById(id);
         element.value = value;
         if (displayId) {
             const displayElement = document.getElementById(displayId);
-            updateSliderValue(element, displayElement, isPercentage);
+            console.log(id, value, reverse, isPercentage)
+            updateSliderValue(element, displayElement, reverse, isPercentage);
         }
     });
 }
@@ -41,14 +44,30 @@ function startAlgorithm() {
     window.scrollTo({
       top: document.getElementById("time").offsetTop - 50,
       left: 0,
-      behavior: 'smooth' // Optional: Adds a smooth scrolling effect
+      behavior: 'smooth'
     });
+
+    const algorithmParameters = {
+        "state": document.getElementById("state-select").value.toLowerCase(),
+        "generations": parseInt(document.getElementById("generation-slider").value),
+        "population_size": parseInt(document.getElementById("population-slider").value),
+        "starting_population_size": parseInt(document.getElementById("starting-population-slider").value),
+        "selection_pct": parseInt(document.getElementById("population-selection-slider").value) / 100,
+        "weights": {
+            "contiguity": -parseInt(document.getElementById("contiguity-slider").value),
+            "population_balance": -parseInt(document.getElementById("pop-balance-slider").value),
+            "compactness": parseInt(document.getElementById("compactness-slider").value),
+            "win_margin": -parseInt(document.getElementById("win-margin-slider").value),
+            "efficiency_gap": -parseInt(document.getElementById("efficiency-gap-slider").value),
+        },
+    };
 
     fetch('/start-algorithm', {
         method: 'POST',
         headers: {
             'Content-Type': 'application/json',
-        }
+        },
+        body: JSON.stringify(algorithmParameters)
     })
     .then(response => response.json())
     .then(data => console.log(data.message))
@@ -56,6 +75,7 @@ function startAlgorithm() {
         console.error('Error:', error);
     });
 }
+
 
 function stopAlgorithm() {
     document.getElementById("start-running").style.display = "inline";

@@ -52,8 +52,8 @@ def compare(state, name, weights, config):
     print(f'New Solution Metrics: {" | ".join(metric_str for metric_str in metric_strs)}')
 
 
-def create_algorithm(config):
-    state = 'pa'
+def create_algorithm(config, state, population_size, starting_population_size, selection_pct, weights):
+    state = state.lower()
 
     env = RedistrictingEnv(
         state=state,
@@ -66,13 +66,7 @@ def create_algorithm(config):
         live_plot=False,
     )
 
-    weights = DictCollection(
-        contiguity=0,
-        population_balance=-5,
-        compactness=1,
-        win_margin=-1,
-        efficiency_gap=-1,
-    )
+    weights = DictCollection(**weights)
 
     params = ParameterCollection(
         expansion_population_bias=Parameter(-0.6, exp_factor=1),  # The bias parameters aid the genetic mutations
@@ -96,10 +90,13 @@ def create_algorithm(config):
         print_every=10,  # How often to log and print updates on the progress
         save_every=10,  # How often to save progress
         log_path=config['log_path'],
-        population_size=2,  # For all practical purpose, a large population size will not provide valuable results
-        selection_pct=0.5,  # Selects 1 from the population size of 2 and mutates that single map to generate another
-        starting_population_size=25,  # Starts with a large population size in 0th generation and selects the best 2
-        # -1 indicates that all maps found in the random-starting-points directory will be used to start the population
+        population_size=population_size,
+        # For all practical purpose, a large population size will not provide valuable results
+        selection_pct=selection_pct,
+        # Selects 1 from the population size of 2 and mutates that single map to generate another
+        starting_population_size=starting_population_size,
+        # Starts with a large population size in 0th generation and selects the best 2, -1 indicates that all maps
+        # found in the random-starting-points directory will be used to start the population
         weights=weights,
         params=params,
         min_p=0.1,  # Ensures that, despite heuristics, every mutation is still somewhat possible

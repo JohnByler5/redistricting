@@ -2,9 +2,9 @@ import asyncio
 import json
 import os
 
-from quart import current_app, render_template, send_from_directory, stream_with_context, make_response
+from quart import current_app, render_template, send_from_directory, stream_with_context, make_response, request
 
-from .run_algorithm import update_event, users, run_algorithm, quit_algorithm, get_results, exists
+from .run_algorithm import update_event, run_algorithm, quit_algorithm, get_results, exists
 
 
 async def home():
@@ -17,8 +17,9 @@ async def favicon():
 
 
 async def start_algorithm():
+    params = await request.json
     # Run in thread so that the event loop be not blocked
-    await asyncio.to_thread(run_algorithm, 'user_id')    # TODO: Actually implement user IDs
+    await asyncio.to_thread(run_algorithm, 'user_id', params)    # TODO: Actually implement user IDs
     return {'message': 'Algorithm started successfully!'}
 
 

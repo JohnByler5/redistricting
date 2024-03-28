@@ -14,12 +14,19 @@ with open('redistricting_app/config.json', 'r') as f:
     CONFIG = json.load(f)
 
 
-def run_algorithm(user_id):
+def run_algorithm(user_id, params):
     async def run():
         global lock, update_event, users
 
-        algorithm = create_algorithm(CONFIG)
-        generations = 100_000
+        algorithm = create_algorithm(
+            config=CONFIG,
+            state=params['state'],
+            population_size=params['population_size'],
+            starting_population_size=params['starting_population_size'],
+            selection_pct=params['selection_pct'],
+            weights=params['weights'],
+        )
+        generations = params['generations']
         update_every = 10
 
         q = asyncio.Queue()
