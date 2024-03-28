@@ -1,8 +1,11 @@
+import os
+
 import geopandas as gpd
 import matplotlib
 import matplotlib.pyplot as plt
 import numpy as np
 import topojson as tp
+from shapely import Polygon
 
 from .union_cache import UnionCache
 
@@ -21,7 +24,7 @@ def infer_utm_crs(data):
     return f'EPSG:{hemisphere_prefix}{zone_number:02d}'
 
 
-def refresh_data(data_path, simplified_path, simplify=False):
+def refresh_data(data_path, simplified_path, simplify=False, save_neighbors=True):
     """Loads data and saves to a simplified parquet file for faster load and preprocessing files. Can simplify using
     topologically preserving algorithms if wanted to boost run times; however, contiguity performance can degrade
     and bugs can occur."""
@@ -34,7 +37,18 @@ def refresh_data(data_path, simplified_path, simplify=False):
     if simplify:
         data = tp.Topology(data, prequantize=False).toposimplify(50).to_gdf()
         data.geometry[~data.geometry.is_valid] = data.geometry[~data.geometry.is_valid].buffer(0)
+
+    num_cols = data.select_dtypes(np.number).columns
+    data[num_cols] = data[num_cols].astype(np.float64)
+    data = data[['geometry', 'population', 'democrat', 'republican']]
     data.to_parquet(simplified_path)
+
+    if save_neighbors:
+        neighbors = gpd.sjoin(data, data, how='inner', predicate='touches')
+        neighbors = neighbors[neighbors.index != neighbors['index_right']]
+        neighbors.geometry = [Polygon([(0, 0), (0, 1), (1, 0)]) for _ in range(len(neighbors))]
+        neighbors_path = f'{simplified_path.rstrip(".parquet")}-neighbors.parquet'
+        neighbors.to_parquet(neighbors_path)
 
 
 class RedistrictingEnv:
@@ -46,8 +60,6 @@ class RedistrictingEnv:
     def __init__(self, state, n_districts, data_path, current_data_path, current_img_path, save_data_dir=None,
                  save_img_dir=None, live_plot=False):
         self.data = gpd.read_parquet(data_path)
-        num_cols = self.data.select_dtypes(np.number).columns
-        self.data[num_cols] = self.data[num_cols].astype(np.float64)
         self.n_blocks = len(self.data)
 
         self.state = state
@@ -55,9 +67,13 @@ class RedistrictingEnv:
         assert n_districts > 0
         assert n_districts <= self.n_blocks
 
-        self.neighbors = gpd.sjoin(self.data, self.data, how='inner', predicate='touches')
-        self.neighbors = self.neighbors[self.neighbors.index != self.neighbors['index_right']]
-
+        neighbors_path = f'{data_path.rstrip(".parquet")}-neighbors.parquet'
+        if os.path.exists(neighbors_path):
+            self.neighbors = gpd.read_parquet(neighbors_path)
+            self.neighbors.geometry = self.data.geometry[self.neighbors.index]
+        else:
+            self.neighbors = gpd.sjoin(self.data, self.data, how='inner', predicate='touches')
+            self.neighbors = self.neighbors[self.neighbors.index != self.neighbors['index_right']]
         self.n_districts = n_districts
         self.ideal_population = self.data['population'].sum() / self.n_districts
 

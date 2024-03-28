@@ -215,7 +215,7 @@ class Algorithm:
         """Plots and saves the current district map if wanted and indicated for this timestep by the relevant
         parameters, i.e. 'save_every' and the save directory parameters."""
         if self.env.save_data_dir is not None and ((self.time_step_count % self.save_every) == 0):
-            district_map.save(path=self.save_data_path)
+            district_map.save(path=self.save_data_path, save_compiled=True)
 
         save_img = self.env.save_img_dir is not None and ((self.time_step_count % self.save_every) == 0)
         district_map.plot(save=save_img, save_path=self.save_img_path)

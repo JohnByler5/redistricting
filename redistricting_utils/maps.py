@@ -58,7 +58,7 @@ def save_random_maps(env, save_dir, n=None, save_n=None, weights=None, balance_p
 
         if save_n >= n:
             save_path = f'{os.path.join(save_dir, str(i + 1))}.pkl'
-            district_map.save(save_path)
+            district_map.save(save_path, save_compiled=True)
         else:
             maps.append(district_map)
 
@@ -75,7 +75,7 @@ def save_random_maps(env, save_dir, n=None, save_n=None, weights=None, balance_p
               f'Saving {len(collection)} maps...')
         for i, map_ in enumerate(collection, 1):
             save_path = f'{os.path.join(save_dir, str(i))}.pkl'
-            map_.save(save_path)
+            map_.save(save_path, save_compiled=True)
 
 
 class DistrictMap:
@@ -112,16 +112,30 @@ class DistrictMap:
     def copy(self):
         return DistrictMap(env=self.env, assignments=self.assignments.copy(), districts=copy.deepcopy(self.districts))
 
-    def save(self, path):
-        """Saves DistrictMap instance (assignments only) to a pickle file."""
+    def save(self, path, save_compiled=True):
+        """Saves DistrictMap instance (assignments only) to a pickle file and, if desired, compiled data to parquet."""
+        assert path.endswith('.pkl')
+
         with open(path, 'wb') as f:
             pickle.dump(self.assignments, f)
+        if save_compiled:
+            self.districts.to_parquet(f'{path.rstrip(".pkl")}.parquet')
 
     @classmethod
     def load(cls, path, env):
-        """Loads DistrictMap instance (assignments only) from a saved pickle file."""
+        """Loads DistrictMap instance from assignments from a saved pickle file and compiled data from parquet, if it
+        exists."""
+        assert path.endswith('.pkl')
+
         with open(path, 'rb') as f:
-            return cls(env=env, assignments=pickle.load(f))
+            assignments = pickle.load(f)
+
+        districts = None
+        parquet_path = f'{path.rstrip(".pkl")}.parquet'
+        if os.path.exists(parquet_path):
+            districts = gpd.read_parquet(parquet_path)
+
+        return cls(env=env, assignments=assignments, districts=districts)
 
     def construct_districts(self):
         """Constructs the district geometries and aggregated data for the current assignments of VTDs."""

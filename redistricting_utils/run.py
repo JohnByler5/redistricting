@@ -1,8 +1,10 @@
+import os
+
 import geopandas as gpd
 
 from .algorithm import DictCollection, ParameterCollection, Parameter, RangeParameter
 from .genetic_algorithm import GeneticRedistrictingAlgorithm
-from .maps import DistrictMap
+from .maps import DistrictMap, DistrictMapCollection
 from .env import RedistrictingEnv, infer_utm_crs
 
 
@@ -26,6 +28,47 @@ def refresh_current_maps(states, config):
         district_map = DistrictMap(env=env, assignments=assignments)
         district_map.save(config['states'][state]['paths']['current_data'])
         district_map.plot(config['states'][state]['paths']['current_image'])
+
+
+def cleanup_random_maps(state, config, keep=5):
+    weights = DictCollection(
+        contiguity=0,
+        population_balance=-5,
+        compactness=1,
+        win_margin=-1,
+        efficiency_gap=-1,
+    )
+
+    env = RedistrictingEnv(
+        state=state,
+        n_districts=config['states'][state]['n_districts'],
+        data_path=config['states'][state]['paths']['simplified_raw_data'],
+        current_data_path=config['states'][state]['paths']['current_data'],
+        current_img_path=config['states'][state]['paths']['current_image'],
+        save_data_dir=config['states'][state]['paths']['solution_data_dir'],
+        save_img_dir=config['states'][state]['paths']['solution_images_dir'],
+        live_plot=False,
+    )
+
+    collection = DistrictMapCollection(env=env)
+    paths = []
+    for dir_name in os.listdir(config['starting_maps_dir']):
+        dir_path = os.path.join(config['starting_maps_dir'], dir_name)
+        for file_name in os.listdir(dir_path):
+            if not file_name.endswith('.pkl'):
+                continue
+            file_path = os.path.join(dir_path, file_name)
+            paths.append(file_path)
+            district_map = DistrictMap.load(file_path, env=env)
+            collection.add(district_map)
+            if collection.is_full():
+                break
+        if collection.is_full():
+            break
+
+    fitness_scores, _ = collection.calculate_fitness(weights=weights)
+    for index in sorted(fitness_scores, key=lambda x: fitness_scores[x], reverse=True)[keep:]:
+        os.remove(paths[index])
 
 
 def compare(state, name, weights, config):

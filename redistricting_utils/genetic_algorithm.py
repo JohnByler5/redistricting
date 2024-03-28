@@ -137,8 +137,8 @@ class GeneticRedistrictingAlgorithm(Algorithm):
 
     def fill_population(self):
         """Fills the currently empty population with random maps to begin the algorithm."""
-        count = sum(len(os.listdir(os.path.join(self.starting_maps_dir, dir_name)))
-                    for dir_name in os.listdir(self.starting_maps_dir))
+        count = sum(len([file_name for file_name in os.listdir(os.path.join(self.starting_maps_dir, dir_name))
+                         if file_name.endswith('pkl')]) for dir_name in os.listdir(self.starting_maps_dir))
         start_size = count if self.starting_population_size == -1 else self.starting_population_size
         self.population = DistrictMapCollection(env=self.env, max_size=start_size)
         diff = start_size - count
@@ -149,6 +149,8 @@ class GeneticRedistrictingAlgorithm(Algorithm):
         for dir_name in os.listdir(self.starting_maps_dir):
             dir_path = os.path.join(self.starting_maps_dir, dir_name)
             for file_name in os.listdir(dir_path):
+                if not file_name.endswith('.pkl'):
+                    continue
                 file_path = os.path.join(dir_path, file_name)
                 district_map = DistrictMap.load(file_path, env=self.env)
                 self.population.add(district_map)
