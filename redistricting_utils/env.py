@@ -43,8 +43,8 @@ class RedistrictingEnv:
     congressional districts for a given state. Also includes helper data such as a GeoDataFrame for all neighbors
     (touching) VTDs for every VTD and other functionality, such as a union cache to speed up union calculation times and
     live plotting functionality if wanted."""
-    def __init__(self, state, n_districts, data_path, current_path, save_data_dir=None, save_img_dir=None,
-                 live_plot=False):
+    def __init__(self, state, n_districts, data_path, current_data_path, current_img_path, save_data_dir=None,
+                 save_img_dir=None, live_plot=False):
         self.data = gpd.read_parquet(data_path)
         num_cols = self.data.select_dtypes(np.number).columns
         self.data[num_cols] = self.data[num_cols].astype(np.float64)
@@ -63,7 +63,8 @@ class RedistrictingEnv:
 
         self.union_cache = UnionCache(geometries=self.data.geometry, size=1_000)
 
-        self.current_path = current_path
+        self.current_data_path = current_data_path
+        self.current_img_path = current_img_path
         self.save_data_dir = save_data_dir
         self.save_img_dir = save_img_dir
         self.live_plot = live_plot

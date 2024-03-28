@@ -9,12 +9,14 @@ from .env import RedistrictingEnv, infer_utm_crs
 def refresh_current_maps(states, config):
     for state in states:
         env = RedistrictingEnv(
-            data_path=config['states'][state]['paths']['simplified_raw_data'],
             state=state,
             n_districts=config['states'][state]['n_districts'],
-            live_plot=False,
+            data_path=config['states'][state]['paths']['simplified_raw_data'],
+            current_data_path=config['states'][state]['paths']['current_data'],
+            current_img_path=config['states'][state]['paths']['current_image'],
             save_data_dir=config['states'][state]['paths']['solution_data_dir'],
             save_img_dir=config['states'][state]['paths']['solution_images_dir'],
+            live_plot=False,
         )
 
         districts = gpd.read_file(config['states'][state]['paths']['current_boundaries'])
@@ -27,9 +29,17 @@ def refresh_current_maps(states, config):
 
 
 def compare(state, name, weights, config):
-    env = RedistrictingEnv(data_path=config['states'][state]['paths']['simplified_raw_data'], state=state,
-                           n_districts=config['states'][state]['n_districts'], live_plot=False,
-                           save_img_dir=config['states'][state]['paths']['solution_images_dir'])
+    env = RedistrictingEnv(
+        state=state,
+        n_districts=config['states'][state]['n_districts'],
+        data_path=config['states'][state]['paths']['simplified_raw_data'],
+        current_data_path=config['states'][state]['paths']['current_data'],
+        current_img_path=config['states'][state]['paths']['current_image'],
+        save_data_dir=config['states'][state]['paths']['solution_data_dir'],
+        save_img_dir=config['states'][state]['paths']['solution_images_dir'],
+        live_plot=False,
+    )
+
     current = DistrictMap.load(config['states'][state]['paths']['current_data'], env=env)
     solution = DistrictMap.load(f'{config["states"][state]["paths"]["solution_data_dir"]}/{name}', env=env)
 
@@ -48,8 +58,9 @@ def create_algorithm(config):
     env = RedistrictingEnv(
         state=state,
         n_districts=config['states'][state]['n_districts'],
-        data_path=config['states'][state]['paths']['simplified'],
-        current_path=config['states'][state]['paths']['current_data'],
+        data_path=config['states'][state]['paths']['simplified_raw_data'],
+        current_data_path=config['states'][state]['paths']['current_data'],
+        current_img_path=config['states'][state]['paths']['current_image'],
         save_data_dir=config['states'][state]['paths']['solution_data_dir'],
         save_img_dir=config['states'][state]['paths']['solution_images_dir'],
         live_plot=False,

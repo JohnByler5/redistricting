@@ -96,13 +96,13 @@ class ParameterCollection(DictCollection):
         super().__init__(**params)
 
     def tick(self):
-        """Performs a time step for all paramreters in the collection, mutating them all at once."""
+        """Performs a time step for all parameters in the collection, mutating them all at once."""
         for param in self.values():
             param.tick()
 
 
 class Algorithm:
-    """Base algorithm class that is built off by the Genetic and Search aglrothms. Provides common functionality."""
+    """Base algorithm class that is built off by the Genetic and Search algorithms. Provides common functionality."""
 
     def __init__(
             self,
@@ -144,7 +144,7 @@ class Algorithm:
         self._start_map = None
 
         # Load current map
-        district_map = DistrictMap.load(env.current_path, env=self.env)
+        district_map = DistrictMap.load(env.current_data_path, env=self.env)
         self.current_fitness, self.current_metrics = district_map.calculate_fitness(DictCollection(
             contiguity=0,
             population_balance=-5,
@@ -188,7 +188,7 @@ class Algorithm:
             "timeElapsed": f'{elapsed // 3600:02.0f}:{(elapsed % 3600) // 60:02.0f}:{elapsed % 60:02.0f}',
             "generation": self.time_step_count,
             "currentMap": {
-                "imageUrl": f'maps/images/current-{self.env.state}-districts.png',
+                "imageUrl": self.env.current_img_path,
                 "stats": {
                     "fitness": self.current_metrics['fitness'],
                     "pop-balance": self.current_metrics['population_balance'],

@@ -85,17 +85,35 @@ function updateMapAndStats(mapType, mapData) {
     }
 }
 
-const ws = new WebSocket(`wss://${window.location.host}/ws`);
-
-ws.onmessage = function(event) {
-    const data = JSON.parse(event.data);
-    if ("event" in data && data["event"] === "OPERATION_COMPLETE") {
-        document.getElementById("start-running").style.display = "inline";
-        document.getElementById("stop-running").style.display = "none";
-    } else {
-        document.getElementById('time').textContent = data.timeElapsed;
-        document.getElementById('generation').textContent = data.generation;
-        updateMapAndStats('current-map', data.currentMap);
-        updateMapAndStats('solution-map', data.solutionMap);
+function connectEventSource() {
+    const headers = {
+        'Content-Type': 'text/event-stream',
+        'Cache-Control': 'no-cache',
+        'Connection': 'keep-alive',
+        'X-Accel-Buffering': 'no',
     }
-};
+    const eventSource = new EventSource("/events", {headers: headers, heartbeatTimeout: 1000 * 60 * 2});
+
+    eventSource.onmessage = function(event) {
+        const data = JSON.parse(event.data);
+        if ("event" in data && ["USER_ID_NOT_FOUND", "OPERATION_COMPLETE"].includes(data["event"])) {
+            document.getElementById("start-running").style.display = "inline";
+            document.getElementById("stop-running").style.display = "none";
+        } else if ("event" in data) {
+            console.log(data);
+        } else {
+            document.getElementById('time').textContent = data.timeElapsed;
+            document.getElementById('generation').textContent = data.generation;
+            updateMapAndStats('current-map', data.currentMap);
+            updateMapAndStats('solution-map', data.solutionMap);
+        }
+    };
+
+    eventSource.onerror = function(error) {
+        console.error("EventSource failed:", error);
+        eventSource.close();
+        connectEventSource();
+    };
+}
+
+connectEventSource();

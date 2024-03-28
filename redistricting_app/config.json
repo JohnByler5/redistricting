@@ -4,11 +4,11 @@
         "pa": {
             "n_districts": 17,
             "paths": {
-                "data": "redistricting_app/data/pa/vtd-election-and-census.shp",
-                "simplified": "redistricting_app/data/pa/simplified.parquet",
+                "raw_data": "redistricting_app/data/pa/vtd-election-and-census.shp",
+                "simplified_raw_data": "redistricting_app/data/pa/simplified.parquet",
                 "current_boundaries": "redistricting_app/data/pa/current-boundaries.shp",
                 "current_data": "redistricting_app/maps/current/data/pa.pkl",
-                "current_images": "redistricting_app/maps/current/images/pa.png",
+                "current_image": "redistricting_app/maps/current/images/pa.png",
                 "solution_data_dir": "redistricting_app/maps/solutions/data/pa",
                 "solution_images_dir": "redistricting_app/maps/solutions/images/pa",
                 "starting_maps_dir": "redistricting_app/maps/random-starting-points/pa"

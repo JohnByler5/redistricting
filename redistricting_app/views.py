@@ -1,19 +1,24 @@
 import asyncio
-import copy
 import json
 import os
 
-from quart import current_app, render_template, send_from_directory, url_for, websocket
+from quart import current_app, render_template, send_from_directory, stream_with_context, make_response
 
-from .run_algorithm import lock, update_event, users, run_algorithm, quit_algorithm, get_results
+from .run_algorithm import update_event, users, run_algorithm, quit_algorithm, get_results, exists
 
 
 async def home():
     return await render_template('index.html')
 
 
+async def favicon():
+    return await send_from_directory(os.path.join(current_app.static_folder, 'images'), 'favicon.ico',
+                                     mimetype='image/vnd.microsoft.icon')
+
+
 async def start_algorithm():
-    await run_algorithm('used_id')    # TODO: Actually implement user IDs
+    # Run in thread so that the event loop be not blocked
+    await asyncio.to_thread(run_algorithm, 'user_id')    # TODO: Actually implement user IDs
     return {'message': 'Algorithm started successfully!'}
 
 
@@ -22,42 +27,49 @@ async def stop_algorithm():
     return {'message': 'Algorithm stopped successfully!'}
 
 
-async def images(filename):
-    return await send_from_directory(os.path.join(current_app.root_path, 'maps', 'solutions', 'images'), filename)
+async def maps(filename):
+    return await send_from_directory(os.path.join(current_app.root_path, 'maps'), filename)
 
 
-async def ws():
-    while True:
-        print('Waiting')
-
-        # Outer loop is for each run cancellation or finish
-        await update_event.wait()
-        update_event.clear()
-
-        print('Entering loop')
-
-        last = None
+async def events():
+    @stream_with_context
+    async def event_stream():
         while True:
-            await asyncio.sleep(0.5)
+            # Outer loop is for each new algorithm start
+            if not await exists('user_id'):
+                done, pending = await asyncio.wait([asyncio.create_task(update_event.wait())], timeout=10)
+                if pending:
+                    pending.pop().cancel()
+                    # Keep connection alive
+                    yield f'data: {json.dumps({"event": "heartbeat"})}\n\n'
+                    continue
 
-            print('Getting')
-            results = await get_results('user_id')  # TODO: Actually implement user IDs
-            print('Got', results)
-            if results is None:
-                continue
-            if results == 'OPERATION_COMPLETE':
-                # Algorithm is finished
-                async with lock:
-                    users.pop('user_id')
-                await websocket.send(json.dumps({'event': 'OPERATION_COMPLETE'}))
-                break
+                update_event.clear()
 
-            if results == last:
-                continue
-            last = copy.deepcopy(results)
+            last = None
+            while True:
+                results, event = await get_results('user_id', timeout=10)  # TODO: Actually implement user IDs
 
-            for key in ['currentMap', 'solutionMap']:
-                filename = results[key]['imageUrl'][results[key]['imageUrl'].rindex('/') + 1:]
-                results[key]['imageUrl'] = url_for('images', filename=filename, _external=True)
-            await websocket.send(json.dumps(results))
-            print('Sent')
+                if results is None or results == last:
+                    # Keep connection alive
+                    yield f'data: {json.dumps({"event": "heartbeat"})}\n\n'
+                    event.set()
+                    continue
+                if results == 'TIMEOUT':
+                    # Keep connection alive
+                    yield f'data: {json.dumps({"event": "heartbeat"})}\n\n'
+                    continue
+                if results in ['USER_ID_NOT_FOUND', 'OPERATION_COMPLETE']:
+                    # Algorithm is stopped/finished
+                    yield f"data: {json.dumps({'event': results})}\n\n"
+                    event.set()
+                    break
+
+                yield f"data: {json.dumps(results)}\n\n"
+                event.set()
+
+    response = await make_response(event_stream(), 200)
+    response.headers['Content-Type'] = 'text/event-stream'
+    response.headers['Cache-Control'] = 'no-cache'
+    response.headers['Connection'] = 'keep-alive'
+    return response
