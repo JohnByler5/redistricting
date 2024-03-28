@@ -28,7 +28,7 @@ def run_algorithm(user_id):
             update_event.set()
 
         wait_event = asyncio.Event()
-        for i, update in enumerate(algorithm.run(generations=generations)):
+        for i, update in enumerate(algorithm.run(generations=generations), 1):
             if i % update_every == 0:
                 # Change file paths to URLs
                 for map_type in ['currentMap', 'solutionMap']:
