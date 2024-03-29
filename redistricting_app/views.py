@@ -63,7 +63,6 @@ async def events():
                 if results in ['USER_ID_NOT_FOUND', 'OPERATION_COMPLETE']:
                     # Algorithm is stopped/finished
                     yield f"data: {json.dumps({'event': results})}\n\n"
-                    event.set()
                     break
 
                 yield f"data: {json.dumps(results)}\n\n"

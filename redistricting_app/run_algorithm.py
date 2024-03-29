@@ -36,7 +36,10 @@ def run_algorithm(user_id, params):
 
         wait_event = asyncio.Event()
         for i, update in enumerate(algorithm.run(generations=generations), 1):
-            if i % update_every == 0:
+            if user_id not in users:
+                break
+
+            if i == 1 or i % update_every == 0:
                 # Change file paths to URLs
                 for map_type in ['currentMap', 'solutionMap']:
                     if map_type in update:
@@ -59,9 +62,7 @@ async def quit_algorithm(user_id):
     global lock, users
 
     async with lock:
-        thread, _ = users.pop(user_id)
-
-    # TODO: Kill thread here
+        users.pop(user_id)
 
 
 async def get_results(user_id, timeout):
@@ -79,5 +80,6 @@ async def get_results(user_id, timeout):
 
 
 async def exists(user_id):
+    global lock
     async with lock:
         return user_id in users

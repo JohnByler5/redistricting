@@ -21,7 +21,7 @@
                 "simplified_raw_data": "redistricting_app/data/nc/simplified.parquet",
                 "current_boundaries": "redistricting_app/data/nc/current-boundaries.shp",
                 "current_data": "redistricting_app/maps/current/data/nc.pkl",
-                "current_image": "redistricting_app/maps/current/images/n.png",
+                "current_image": "redistricting_app/maps/current/images/nc.png",
                 "solution_data_dir": "redistricting_app/maps/solutions/data/nc",
                 "solution_images_dir": "redistricting_app/maps/solutions/images/nc",
                 "starting_maps_dir": "redistricting_app/maps/random-starting-points/nc"
