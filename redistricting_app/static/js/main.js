@@ -78,8 +78,8 @@ function startAlgorithm() {
 
 
 function stopAlgorithm() {
-    document.getElementById("start-running").style.display = "inline";
     document.getElementById("stop-running").style.display = "none";
+    document.getElementById("start-running").style.display = "inline";
 
     fetch('/stop-algorithm', {
         method: 'POST',

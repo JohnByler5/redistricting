@@ -145,13 +145,7 @@ class Algorithm:
 
         # Load current map
         district_map = DistrictMap.load(env.current_data_path, env=self.env)
-        self.current_fitness, self.current_metrics = district_map.calculate_fitness(DictCollection(
-            contiguity=0,
-            population_balance=-5,
-            compactness=1,
-            win_margin=-1,
-            efficiency_gap=-1,
-        ))
+        self.current_fitness, self.current_metrics = district_map.calculate_fitness(weights)
 
     def log(self, message, verbose=None):
         """Logs a message in a file and in the console (if indicated by verbose) with a timestamp."""
