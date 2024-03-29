@@ -9,7 +9,10 @@
 </head>
 <body>
     <div class="header">
-        <h2>Genetic Congressional Redistricting</h2>
+        <div class="title-box">
+            <img class="logo" src="/static/images/congress-logo.png">
+            <h2>Genetic Congressional Redistricting</h2>
+        </div>
         <div class="nav">
             <a href="https://github.com/JohnByler5/redistricting" target=”_blank”>GitHub</a>
             <a href="https://replit.com/@JohnByler/Genetic-Congressional-Redistricting?v=1" target=”_blank”>Replit</a>
@@ -98,9 +101,9 @@
         <button onclick="startAlgorithm()" id="start-running">Start</button>
         <button onclick="stopAlgorithm()" id="stop-running">Stop</button>
         <div class="run-state box">
-            <span>Time Elapsed: &nbsp;</span>
+            <span class="label">Time Elapsed: &nbsp;</span>
             <span id="time">00:00:00</span>
-            <span> &nbsp;&nbsp;|&nbsp;&nbsp; Generation: &nbsp;</span>
+            <span class="label"> &nbsp;&nbsp;|&nbsp;&nbsp; Generation: &nbsp;</span>
             <span id="generation">0</span>
         </div>
         <div class="map-container">

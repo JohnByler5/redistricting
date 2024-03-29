@@ -6,12 +6,27 @@ body {
     color: #333333;
 }
 .header {
+    position: sticky;
+    top: 0;
     background-color: #333333;
     color: #ffffff;
     padding: 0px 40px;
     display: flex;
     justify-content: space-between;
     align-items: center;
+}
+.title-box {
+    display: flex;
+    flex-direction: row;
+    align-items: center;
+}
+.logo {
+    margin: 10px;
+    width: 40px;
+    height: 40px;
+}
+.title-box h2 {
+    font-size: 20px;
 }
 .nav a {
     margin: 0px 20px;
@@ -103,6 +118,9 @@ button {
     font-size: 18px;
     padding: 10px 15px;
 }
+.run-state .label {
+    font-weight: bold;
+}
 .map-container {
     display: flex;
     justify-content: space-around;
@@ -117,7 +135,7 @@ img {
 .stats-container {
     display: grid;
     grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
-    gap: 5px 40px;
+    gap: 5px 30px;
     min-width: 40%;
     font-size: 16px;
     text-align: left;
@@ -130,6 +148,9 @@ img {
     align-items: center;
     gap: 5px;
     justify-content: space-between;
+}
+.stat .label {
+    font-weight: bold;
 }
 .footer {
     text-align: center;
