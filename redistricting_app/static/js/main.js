@@ -1,3 +1,13 @@
+function getUserID(createNew = true) {
+    userID = sessionStorage.getItem('userID');
+    if (!userID && createNew) {
+        userID = crypto.randomUUID();
+        console.log(`Created new userID: ${userID}`);
+        sessionStorage.setItem('userID', userID);
+    }
+    return userID;
+}
+
 function updateSliderValue(slider, display, reverse = false, isPercentage = false) {
     let value = reverse ? -slider.value : slider.value;
     display.textContent = isPercentage ? `${slider.value}%` : parseInt(value).toLocaleString();
@@ -29,11 +39,7 @@ function resetParameters() {
 }
 
 function startAlgorithm() {
-    const userID = sessionStorage.getItem('userID');
-    if (!userID) {
-        console.error("User ID not found.");
-        return;
-    }
+    const userID = getUserID(createNew = true);
 
     document.getElementById("start-running").style.display = "none";
     document.getElementById("stop-running").style.display = "inline";
@@ -78,9 +84,8 @@ function startAlgorithm() {
 }
 
 function stopAlgorithm() {
-    const userID = sessionStorage.getItem('userID');
+    const userID = getUserID(createNew = false);
     if (!userID) {
-        console.error("User ID not found.");
         return;
     }
 
@@ -112,11 +117,7 @@ function updateMapAndStats(mapType, mapData) {
 }
 
 function connectEventSource() {
-    const userID = sessionStorage.getItem('userID');
-    if (!userID) {
-        console.error("User ID not found.");
-        return;
-    }
+    const userID = getUserID();
 
     const headers = {
         'Content-Type': 'text/event-stream',
@@ -150,8 +151,6 @@ function connectEventSource() {
 }
 
 document.addEventListener("DOMContentLoaded", function() {
-    sessionStorage.setItem('userID', crypto.randomUUID());
-
     document.querySelectorAll(".parameter-container input[type='range']").forEach(slider => {
         const display = slider.nextElementSibling;
         const reverse = ["contiguity-slider", "pop-balance-slider", "win-margin-slider", "efficiency-gap-slider"].includes(slider.id);

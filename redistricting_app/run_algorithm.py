@@ -57,7 +57,8 @@ def run_algorithm(user_id, params):
 
 async def quit_algorithm(user_id):
     global users
-    users.pop(user_id)
+    if user_id in users:
+        users.pop(user_id)
 
 
 async def get_results(user_id, timeout):
