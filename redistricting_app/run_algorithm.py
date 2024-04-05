@@ -6,8 +6,6 @@ from quart import url_for
 from redistricting_utils.run import create_algorithm
 
 users = {}
-
-lock = asyncio.Lock()
 update_event = asyncio.Event()
 
 with open('redistricting_app/config.json', 'r') as f:
