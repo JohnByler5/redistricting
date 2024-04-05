@@ -30,9 +30,8 @@ def run_algorithm(user_id, params):
         update_every = 10
 
         q = asyncio.Queue()
-        async with lock:
-            users[user_id] = q  # TODO: Actually implement user IDs
-            update_event.set()
+        users[user_id] = q  # TODO: Actually implement user IDs
+        update_event.set()
 
         wait_event = asyncio.Event()
         for i, update in enumerate(algorithm.run(generations=generations), 1):
@@ -61,8 +60,7 @@ def run_algorithm(user_id, params):
 async def quit_algorithm(user_id):
     global lock, users
 
-    async with lock:
-        users.pop(user_id)
+    users.pop(user_id)
 
 
 async def get_results(user_id, timeout):
