@@ -14,7 +14,7 @@ with open('redistricting_app/config.json', 'r') as f:
 
 def run_algorithm(user_id, params):
     async def run():
-        global lock, update_event, users
+        global update_event, users
 
         algorithm = create_algorithm(
             config=CONFIG,
@@ -56,23 +56,21 @@ def run_algorithm(user_id, params):
 
 
 async def quit_algorithm(user_id):
-    global lock, users
-
+    global users
     users.pop(user_id)
 
 
 async def get_results(user_id, timeout):
     global users
 
-    async with lock:
-        q = users.get(user_id, None)
-        if q is None:
-            return 'USER_ID_NOT_FOUND', None
-        done, pending = await asyncio.wait([asyncio.create_task(q.get())], timeout=timeout)
-        if done:
-            return done.pop().result()  # (update, event)
-        pending.pop().cancel()
-        return 'TIMEOUT', None
+    q = users.get(user_id, None)
+    if q is None:
+        return 'USER_ID_NOT_FOUND', None
+    done, pending = await asyncio.wait([asyncio.create_task(q.get())], timeout=timeout)
+    if done:
+        return done.pop().result()  # (update, event)
+    pending.pop().cancel()
+    return 'TIMEOUT', None
 
 
 async def exists(user_id):
