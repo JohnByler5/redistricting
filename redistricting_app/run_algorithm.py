@@ -80,6 +80,4 @@ async def get_results(user_id, timeout):
 
 
 async def exists(user_id):
-    global lock
-    async with lock:
-        return user_id in users
+    return user_id in users
