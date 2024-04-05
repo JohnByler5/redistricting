@@ -179,7 +179,7 @@ class Algorithm:
 
         elapsed = (dt.datetime.now() - self.start).total_seconds()
         return {
-            "timeElapsed": f'{elapsed // 3600:02.0f}:{(elapsed % 3600) // 60:02.0f}:{elapsed % 60:02.0f}',
+            "timeElapsed": f'{elapsed // 3600:02.0f}:{(elapsed % 3600) // 60:02.0f}:{int(elapsed % 60):02.0f}',
             "generation": self.time_step_count,
             "currentMap": {
                 "imageUrl": self.env.current_img_path,
