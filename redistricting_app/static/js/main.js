@@ -1,15 +1,3 @@
-document.addEventListener("DOMContentLoaded", function() {
-    sessionStorage.setItem('userID', crypto.randomUUID());
-
-    document.querySelectorAll(".parameter-container input[type='range']").forEach(slider => {
-        const display = slider.nextElementSibling;
-        const reverse = ["contiguity-slider", "pop-balance-slider", "win-margin-slider", "efficiency-gap-slider"].includes(slider.id);
-        const isPercentage = display.textContent.includes("%");
-        slider.addEventListener('input', () => updateSliderValue(slider, display, reverse, isPercentage));
-        updateSliderValue(slider, display, reverse, isPercentage);
-    });
-});
-
 function updateSliderValue(slider, display, reverse = false, isPercentage = false) {
     let value = reverse ? -slider.value : slider.value;
     display.textContent = isPercentage ? `${slider.value}%` : parseInt(value).toLocaleString();
@@ -89,7 +77,6 @@ function startAlgorithm() {
     });
 }
 
-
 function stopAlgorithm() {
     const userID = sessionStorage.getItem('userID');
     if (!userID) {
@@ -100,22 +87,17 @@ function stopAlgorithm() {
     document.getElementById("stop-running").style.display = "none";
     document.getElementById("start-running").style.display = "inline";
 
-    const params = {
-        "user_id": userID,
-    }
+    const params = JSON.stringify({ "user_id": userID });
+    const blob = new Blob([params], {type: 'application/json'});
 
-    fetch('/stop-algorithm', {
-        method: 'POST',
-        headers: {
-            'Content-Type': 'application/json',
-        },
-        body: JSON.stringify(params)
-    })
-    .then(response => response.json())
-    .then(data => console.log(data.message))
-    .catch((error) => {
-        console.error('Error:', error);
-    });
+    const url = '/stop-algorithm';
+    const beaconSent = navigator.sendBeacon(url, blob);
+
+    if (beaconSent) {
+        console.log("Beacon sent successfully");
+    } else {
+        console.log("Beacon failed to send");
+    }
 }
 
 function updateMapAndStats(mapType, mapData) {
@@ -167,4 +149,20 @@ function connectEventSource() {
     };
 }
 
-connectEventSource();
+document.addEventListener("DOMContentLoaded", function() {
+    sessionStorage.setItem('userID', crypto.randomUUID());
+
+    document.querySelectorAll(".parameter-container input[type='range']").forEach(slider => {
+        const display = slider.nextElementSibling;
+        const reverse = ["contiguity-slider", "pop-balance-slider", "win-margin-slider", "efficiency-gap-slider"].includes(slider.id);
+        const isPercentage = display.textContent.includes("%");
+        slider.addEventListener('input', () => updateSliderValue(slider, display, reverse, isPercentage));
+        updateSliderValue(slider, display, reverse, isPercentage);
+    });
+
+    connectEventSource();
+});
+
+window.addEventListener("beforeunload", (event) => {
+    stopAlgorithm();
+});

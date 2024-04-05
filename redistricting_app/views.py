@@ -2,7 +2,7 @@ import asyncio
 import json
 import os
 
-from quart import current_app, render_template, send_from_directory, stream_with_context, make_response, request
+from quart import current_app, render_template, send_from_directory, stream_with_context, make_response, request, jsonify
 
 from .run_algorithm import update_event, run_algorithm, quit_algorithm, get_results, exists
 
@@ -30,7 +30,12 @@ async def start_algorithm():
 
 
 async def stop_algorithm():
-    params = await request.json
+    data = await request.get_data(as_text=True)
+    try:
+        params = json.loads(data)
+    except json.JSONDecodeError:
+        return jsonify({'error': 'Invalid JSON'}), 400
+
     user_id = params.get('user_id')
     if not user_id:
         return {'error': 'User ID is required'}, 400
@@ -66,6 +71,7 @@ async def events():
             last = None
             while True:
                 results, event = await get_results(user_id, timeout=10)
+                print(results)
 
                 if results is None or results == last:
                     # Keep connection alive
