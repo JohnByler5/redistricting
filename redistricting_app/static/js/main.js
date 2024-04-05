@@ -1,4 +1,6 @@
 document.addEventListener("DOMContentLoaded", function() {
+    sessionStorage.setItem('userID', crypto.randomUUID());
+
     document.querySelectorAll(".parameter-container input[type='range']").forEach(slider => {
         const display = slider.nextElementSibling;
         const reverse = ["contiguity-slider", "pop-balance-slider", "win-margin-slider", "efficiency-gap-slider"].includes(slider.id);
@@ -39,6 +41,12 @@ function resetParameters() {
 }
 
 function startAlgorithm() {
+    const userID = sessionStorage.getItem('userID');
+    if (!userID) {
+        console.error("User ID not found.");
+        return;
+    }
+
     document.getElementById("start-running").style.display = "none";
     document.getElementById("stop-running").style.display = "inline";
     window.scrollTo({
@@ -62,12 +70,17 @@ function startAlgorithm() {
         },
     };
 
+    const params = {
+        "user_id": userID,
+        "algorithmParams": algorithmParameters,
+    }
+
     fetch('/start-algorithm', {
         method: 'POST',
         headers: {
             'Content-Type': 'application/json',
         },
-        body: JSON.stringify(algorithmParameters)
+        body: JSON.stringify(params)
     })
     .then(response => response.json())
     .then(data => console.log(data.message))
@@ -78,14 +91,25 @@ function startAlgorithm() {
 
 
 function stopAlgorithm() {
+    const userID = sessionStorage.getItem('userID');
+    if (!userID) {
+        console.error("User ID not found.");
+        return;
+    }
+
     document.getElementById("stop-running").style.display = "none";
     document.getElementById("start-running").style.display = "inline";
+
+    const params = {
+        "user_id": userID,
+    }
 
     fetch('/stop-algorithm', {
         method: 'POST',
         headers: {
             'Content-Type': 'application/json',
-        }
+        },
+        body: JSON.stringify(params)
     })
     .then(response => response.json())
     .then(data => console.log(data.message))
@@ -106,13 +130,20 @@ function updateMapAndStats(mapType, mapData) {
 }
 
 function connectEventSource() {
+    const userID = sessionStorage.getItem('userID');
+    if (!userID) {
+        console.error("User ID not found.");
+        return;
+    }
+
     const headers = {
         'Content-Type': 'text/event-stream',
         'Cache-Control': 'no-cache',
         'Connection': 'keep-alive',
         'X-Accel-Buffering': 'no',
     }
-    const eventSource = new EventSource("/events", {headers: headers, heartbeatTimeout: 1000 * 60 * 2});
+    const eventSourceUrl = `/events?user_id=${encodeURIComponent(userID)}`;
+    const eventSource = new EventSource(eventSourceUrl, {headers: headers, heartbeatTimeout: 1000 * 60 * 2});
 
     eventSource.onmessage = function(event) {
         const data = JSON.parse(event.data);

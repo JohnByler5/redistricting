@@ -18,13 +18,24 @@ async def favicon():
 
 async def start_algorithm():
     params = await request.json
-    # Run in thread so that the event loop be not blocked
-    await asyncio.to_thread(run_algorithm, 'user_id', params)    # TODO: Actually implement user IDs
+    user_id = params.get('user_id')
+    if not user_id:
+        return {'error': 'User ID is required'}, 400
+
+    if not await exists(user_id):
+        # Run in thread so that the event loop be not blocked
+        await asyncio.to_thread(run_algorithm, user_id, params['algorithmParams'])
+
     return {'message': 'Algorithm started successfully!'}
 
 
 async def stop_algorithm():
-    await quit_algorithm('user_id')  # TODO: Actually implement user IDs
+    params = await request.json
+    user_id = params.get('user_id')
+    if not user_id:
+        return {'error': 'User ID is required'}, 400
+
+    await quit_algorithm(user_id)
     return {'message': 'Algorithm stopped successfully!'}
 
 
@@ -33,11 +44,15 @@ async def maps(filename):
 
 
 async def events():
+    user_id = request.args.get('user_id')
+    if not user_id:
+        return {'error': 'User ID is required'}, 400
+
     @stream_with_context
     async def event_stream():
         while True:
             # Outer loop is for each new algorithm start
-            if not await exists('user_id'):
+            if not await exists(user_id):
                 done, pending = await asyncio.wait([asyncio.create_task(update_event.wait())], timeout=10)
                 if pending:
                     pending.pop().cancel()
@@ -46,10 +61,11 @@ async def events():
                     continue
 
                 update_event.clear()
+                break  # break to reset the event stream and refresh variables
 
             last = None
             while True:
-                results, event = await get_results('user_id', timeout=10)  # TODO: Actually implement user IDs
+                results, event = await get_results(user_id, timeout=10)
 
                 if results is None or results == last:
                     # Keep connection alive

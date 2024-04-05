@@ -28,7 +28,7 @@ def run_algorithm(user_id, params):
         update_every = 10
 
         q = asyncio.Queue()
-        users[user_id] = q  # TODO: Actually implement user IDs
+        users[user_id] = q
         update_event.set()
 
         wait_event = asyncio.Event()
